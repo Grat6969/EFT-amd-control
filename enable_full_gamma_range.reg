@@ -1,0 +1,6 @@
+Windows Registry Editor Version 5.00
+
+; Windows normally blocks gamma ramps that move far from the default.
+; This lets Tarkov Display use the full gamma range. Reboot afterwards.
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM]
+"GdiIcmGammaRange"=dword:00000100
