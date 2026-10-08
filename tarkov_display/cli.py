@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import logging
 import queue
 import sys
@@ -229,9 +230,18 @@ def main(argv=None) -> int:
     if sys.platform != "win32" and args.command not in (None, "gui", "list", "price"):
         print("tarkov-display controls Windows display drivers and only runs on Windows.")
         return 1
-    setup_logging(args.verbose)
+    log_file = setup_logging(args.verbose)
     func = getattr(args, "func", cmd_gui)
-    return func(args)
+    try:
+        return func(args)
+    except Exception as exc:
+        log.exception("Tarkov Companion stopped because of an error")
+        if sys.platform == "win32" and sys.stderr is None:  # no console to show it in
+            ctypes.windll.user32.MessageBoxW(
+                None, f"Tarkov Companion stopped because of an error:\n\n{exc}\n\nDetails are in {log_file}",
+                "Tarkov Companion", 0x10)  # MB_ICONERROR
+            return 1
+        raise
 
 
 if __name__ == "__main__":

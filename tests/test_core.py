@@ -216,5 +216,28 @@ def test_bad_settings_fall_back_to_defaults(tmp_path):
     assert json.loads(path.read_text())["active_profile"] == default.active_profile
 
 
+def test_log_file_starts_over_when_big(tmp_path, monkeypatch):
+    import logging
+    import sys
+
+    from tarkov_display.app import LOG_MAX_BYTES, setup_logging
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    root = logging.getLogger()
+    for obj, attr in ((sys, "excepthook"), (threading, "excepthook"), (root, "handlers"), (root, "level")):
+        monkeypatch.setattr(obj, attr, getattr(obj, attr))  # put back after the test
+    root.handlers = []
+    path = tmp_path / "TarkovDisplay" / "tarkov_display.log"
+    path.parent.mkdir()
+    path.write_bytes(b"x" * (LOG_MAX_BYTES + 1))
+    assert setup_logging() == path
+    logging.getLogger("tarkov_display.test").info("hello")
+    sys.excepthook(ValueError, ValueError("boom"), None)
+    for handler in root.handlers:
+        handler.close()
+    text = path.read_text()
+    assert path.stat().st_size < 2000 and "hello" in text and "boom" in text
+
+
 def test_all_color_types_handled():
     assert set(COLOR_TYPES) == set(DEFAULTS)

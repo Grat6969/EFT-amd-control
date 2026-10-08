@@ -18,19 +18,39 @@ from .watcher import GameWatcher
 log = logging.getLogger(__name__)
 
 
+LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
 def setup_logging(verbose: bool = False) -> Path:
     log_dir = default_config_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / "tarkov_display.log"
-    handlers = [logging.FileHandler(path, encoding="utf-8")]
-    if sys.stderr is not None:  # None in the windowed .exe
+    try:
+        fresh = path.stat().st_size > LOG_MAX_BYTES  # start over instead of growing forever
+    except OSError:
+        fresh = False
+    handlers = [logging.FileHandler(path, mode="w" if fresh else "a", encoding="utf-8")]
+    if sys.stderr is not None:  # None under pythonw and in the windowed .exe
         handlers.append(logging.StreamHandler())
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
+        datefmt="%Y-%m-%d %H:%M:%S",
         handlers=handlers,
     )
+    # Without a console, errors nobody catches would vanish: log them.
+    def log_uncaught(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            return sys.__excepthook__(exc_type, exc, tb)
+        log.critical("Unexpected error", exc_info=(exc_type, exc, tb))
+
+    def log_thread_error(args):
+        if not issubclass(args.exc_type, SystemExit):
+            name = args.thread.name if args.thread else "?"
+            log.critical("Unexpected error in thread %s", name, exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = log_uncaught
+    threading.excepthook = log_thread_error
     return path
 
 
