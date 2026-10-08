@@ -66,7 +66,7 @@ export const fmt = {
   short: (n) => {
     if (n === null || n === undefined) return "–";
     const a = Math.abs(n);
-    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 1 : 2).replace(/\.0+$/, "") + "M";
+    if (a >= 999500) return parseFloat((n / 1e6).toFixed(a >= 9995000 ? 1 : 2)) + "M"; // not "1000k"
     if (a >= 1e3) return Math.round(n / 1e3) + "k";
     return String(Math.round(n));
   },
@@ -88,7 +88,8 @@ export const fmt = {
   },
   duration: (sec) => {
     if (!sec) return "–";
-    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    if (sec < 60) return `${Math.round(sec)}s`;
+    const total = Math.round(sec / 60), h = Math.floor(total / 60), m = total % 60; // never "1h 60m"
     return h ? `${h}h${m ? ` ${m}m` : ""}` : `${m}m`;
   },
   date: (iso) => {
