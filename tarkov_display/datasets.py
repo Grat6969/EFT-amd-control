@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from .client import TarkovClient
+from .client import TarkovClient, drop_nulls
 
 log = logging.getLogger(__name__)
 
@@ -329,7 +329,7 @@ class DataStore:
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     cached = json.load(fh)
-                entry.update(data=cached["data"], updated=cached["updated"])
+                entry.update(data=drop_nulls(cached["data"]), updated=cached["updated"])
             except (OSError, ValueError, KeyError) as exc:
                 log.warning("Ignoring cached %s: %s", name, exc)
         return entry

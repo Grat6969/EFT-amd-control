@@ -9,6 +9,7 @@ import urllib.request
 import pytest
 
 from tarkov_display import prices as prices_mod
+from tarkov_display.client import drop_nulls
 from tarkov_display.matching import ItemMatcher, candidate_lines
 from tarkov_display.ocr import OcrLine, order_by_distance, parse_tesseract_tsv
 from tarkov_display.prices import (
@@ -284,6 +285,30 @@ def test_requirements_not_refetched_while_fresh(monkeypatch):
     d.refresh()
     assert api.kinds() == ["lite"]
     assert by_id(d.items, "ledx").quests == ["Private Clinic x2 FiR"]
+
+
+def test_partial_graphql_answers_are_used(monkeypatch):
+    # tarkov.dev leaves nulls where single entries failed and still sends the rest.
+    api = FakeTarkovDev(monkeypatch, lite_ok=False)
+    real = api.urlopen
+
+    def urlopen(req, timeout):
+        body = json.loads(real(req, timeout).body)
+        for value in body["data"].values():
+            value.insert(0, None)
+            for entry in value:
+                for objective in (entry or {}).get("objectives") or []:
+                    objective.get("items", []).append(None)
+        body["errors"] = [{"message": "Cannot return null for non-nullable field Task.name."}]
+        return FakeResponse(json.dumps(body).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    d = PriceDB()
+    assert d.refresh() is True and d.error is None
+    assert len(d.items) == len(API_ITEMS)
+    ledx = by_id(d.items, "ledx")
+    assert ledx.hideout == ["Medstation 3 x1"] and ledx.quests == ["Private Clinic x2 FiR"]
+    assert drop_nulls({"a": [None, {"b": [1, None, [None]]}], "c": None}) == {"a": [{"b": [1, []]}], "c": None}
 
 
 # -- search, matching and display ----------------------------------------------

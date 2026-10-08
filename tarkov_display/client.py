@@ -31,6 +31,17 @@ def error_message(body: bytes, status: int, reason: str) -> str:
     return f"HTTP {status} {reason}" + (f": {text[:300]}" if text else "")
 
 
+def drop_nulls(value):
+    """The same data without null list entries. GraphQL puts a null in a list
+    where one entry failed (e.g. a quest missing a translation) and still
+    sends the rest; code reading the lists then needn't check every entry."""
+    if isinstance(value, list):
+        return [drop_nulls(v) for v in value if v is not None]
+    if isinstance(value, dict):
+        return {k: drop_nulls(v) for k, v in value.items()}
+    return value
+
+
 class TarkovClient:
     """Sends requests to tarkov.dev; ``game_mode`` is "regular" or "pve"."""
 
@@ -75,4 +86,4 @@ class TarkovClient:
             log.debug("tarkov.dev reported: %s", result["errors"])
         if not result.get("data"):
             raise ApiError(error_message(raw, 200, "OK"))
-        return result["data"]
+        return drop_nulls(result["data"])
