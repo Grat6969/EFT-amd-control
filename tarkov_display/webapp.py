@@ -523,11 +523,16 @@ class WebApp:
     def shutdown(self) -> None:
         self.stop_event.set()
         self.link.stop_logs()
+        # Release the hotkeys and put the display back before freeing the port:
+        # a restarted copy starts as soon as the port is free, and must find
+        # the hotkeys available and not have its display settings undone.
         try:
-            self.server.stop()
-        except Exception:
-            pass
-        self.app.shutdown()
+            self.app.shutdown()
+        finally:
+            try:
+                self.server.stop()
+            except Exception:
+                pass
 
 
 def main(open_on_start: bool = True, restarted: bool = False, port: Optional[int] = None) -> int:

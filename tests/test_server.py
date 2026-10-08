@@ -213,3 +213,14 @@ def test_popup_placement_stays_on_the_monitor():
     second = (1920, 0, 4480, 1440)                                             # monitor to the right
     assert place_beside((4400, 1400), (300, 200), second) == (4070, 1170)
     assert place_beside((1925, 700), (300, 200), second)[0] >= 1920
+
+
+def test_shutdown_releases_hotkeys_and_display_before_the_port(webapp):
+    # A restarted copy starts once the port is free; by then the hotkeys must
+    # be free and the display back to normal.
+    order = []
+    real_stop = webapp.server.stop
+    webapp.app.shutdown = lambda: order.append("app")
+    webapp.server.stop = lambda: (order.append("server"), real_stop())
+    webapp.shutdown()
+    assert order == ["app", "server"]
