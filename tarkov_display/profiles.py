@@ -48,6 +48,28 @@ BUILTIN_PROFILES: Dict[str, Profile] = {
 DEFAULT_PROCESS_NAMES = ["EscapeFromTarkov.exe", "EscapeFromTarkovArena.exe"]
 
 
+@dataclass
+class AutoConfig:
+    """Automatic boost for dark scenes, driven by screen brightness."""
+
+    enabled: bool = False
+    # Scene brightness (0..1) at or below which the boost is at full strength,
+    # and at or above which there is no boost.
+    dark_level: float = 0.08
+    bright_level: float = 0.30
+    # Added on top of the active profile at full boost.
+    gamma_boost: float = 0.40
+    brightness_boost: int = 15
+    # Roughly how many seconds it takes to settle after the scene changes.
+    response_seconds: float = 1.5
+    sample_interval: float = 0.25
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AutoConfig":
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+
 def default_config_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home() / ".config")
     return Path(base) / "TarkovDisplay"
@@ -65,6 +87,7 @@ class Config:
     foreground_only: bool = True
     hotkeys: bool = True
     poll_seconds: float = 1.0
+    auto: AutoConfig = field(default_factory=AutoConfig)
 
     @property
     def profile(self) -> Profile:
@@ -81,6 +104,7 @@ class Config:
             "foreground_only": self.foreground_only,
             "hotkeys": self.hotkeys,
             "poll_seconds": self.poll_seconds,
+            "auto": asdict(self.auto),
         }
 
     @classmethod
@@ -91,6 +115,8 @@ class Config:
         for key in ("active_profile", "process_names", "foreground_only", "hotkeys", "poll_seconds"):
             if key in data:
                 setattr(cfg, key, data[key])
+        if isinstance(data.get("auto"), dict):
+            cfg.auto = AutoConfig.from_dict(data["auto"])
         if cfg.active_profile not in cfg.profiles:
             cfg.active_profile = next(iter(cfg.profiles))
         return cfg

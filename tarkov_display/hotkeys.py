@@ -2,6 +2,7 @@
 
 Ctrl+Alt+1..9  switch to profile 1..9 (in the order they appear in the config)
 Ctrl+Alt+0     turn the overlay off/on (back to desktop settings)
+Ctrl+Alt+A     turn auto-adjust for dark areas off/on
 """
 
 from __future__ import annotations
@@ -18,12 +19,19 @@ MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
 WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
+AUTO_HOTKEY_ID = 20
 
 
 class Hotkeys:
-    def __init__(self, on_profile: Callable[[int], None], on_toggle: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        on_profile: Callable[[int], None],
+        on_toggle: Callable[[], None],
+        on_toggle_auto: Callable[[], None],
+    ) -> None:
         self.on_profile = on_profile
         self.on_toggle = on_toggle
+        self.on_toggle_auto = on_toggle_auto
         self._thread: Optional[threading.Thread] = None
         self._thread_id = 0
 
@@ -40,6 +48,10 @@ class Hotkeys:
                 registered.append(digit + 1)
             else:
                 log.warning("Ctrl+Alt+%d is already used by another program", digit)
+        if user32.RegisterHotKey(None, AUTO_HOTKEY_ID, mods, ord("A")):
+            registered.append(AUTO_HOTKEY_ID)
+        else:
+            log.warning("Ctrl+Alt+A is already used by another program")
 
         msg = wintypes.MSG()
         try:
@@ -48,7 +60,9 @@ class Hotkeys:
                     continue
                 digit = msg.wParam - 1
                 try:
-                    if digit == 0:
+                    if msg.wParam == AUTO_HOTKEY_ID:
+                        self.on_toggle_auto()
+                    elif digit == 0:
                         self.on_toggle()
                     else:
                         self.on_profile(digit - 1)

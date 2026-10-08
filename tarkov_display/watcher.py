@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Callable, Optional, Tuple
 
+from .auto import AutoAdjuster, boosted_profile
 from .controller import DisplayController
 from .profiles import Config
 
 log = logging.getLogger(__name__)
 
 Probe = Callable[[], Tuple[bool, bool]]
+Sampler = Callable[[], Optional[float]]
 
 
 class GameWatcher:
@@ -21,6 +24,7 @@ class GameWatcher:
         config: Config,
         probe: Optional[Probe] = None,
         on_change: Optional[Callable[[str], None]] = None,
+        sampler: Optional[Sampler] = None,
     ) -> None:
         self.controller = controller
         self.config = config
@@ -29,6 +33,8 @@ class GameWatcher:
 
             probe = lambda: game_state(self.config.process_names)
         self.probe = probe
+        self._sampler = sampler
+        self.adjuster = AutoAdjuster(config.auto)
         self.on_change = on_change or (lambda status: None)
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -51,20 +57,43 @@ class GameWatcher:
             return False
         return running and (focused or not self.config.foreground_only)
 
-    def tick(self) -> None:
+    def _scene_brightness(self) -> Optional[float]:
+        if self._sampler is None:
+            from .screen import ScreenSampler
+
+            self._sampler = ScreenSampler().scene_brightness
+        try:
+            return self._sampler()
+        except Exception as exc:
+            log.debug("screen sample failed: %s", exc)
+            return None
+
+    def tick(self, dt: Optional[float] = None) -> None:
         try:
             running, focused = self.probe()
         except Exception as exc:
             log.debug("probe failed: %s", exc)
             return
         name = self.config.active_profile
+        auto = self.config.auto
         if self.should_apply(running, focused):
+            changed = self._applied != name
+            if auto.enabled:
+                self.adjuster.auto = auto
+                if self.adjuster.update(self._scene_brightness(), dt or auto.sample_interval):
+                    changed = True
+            elif self.adjuster.applied:
+                self.adjuster.reset()
+                changed = True
+            if changed:
+                boost = self.adjuster.applied if auto.enabled else 0.0
+                self.controller.apply(boosted_profile(self.config.profile, boost, auto))
             if self._applied != name:
-                self.controller.apply(self.config.profile)
                 self._applied = name
                 where = "preview" if self.force and not running else "game active"
                 self._set_status(f"{where} - profile '{name}' applied")
         else:
+            self.adjuster.reset()
             if self._applied is not None or self.controller.active is not None:
                 self.controller.restore()
                 self._applied = None
@@ -82,9 +111,13 @@ class GameWatcher:
 
     def run(self) -> None:
         log.info("Watching for %s", ", ".join(self.config.process_names))
+        last = time.monotonic()
         while not self._stop.is_set():
-            self.tick()
-            self._wake.wait(self.config.poll_seconds)
+            now = time.monotonic()
+            self.tick(now - last)
+            last = now
+            fast = self.config.auto.enabled and self.controller.active is not None
+            self._wake.wait(self.config.auto.sample_interval if fast else self.config.poll_seconds)
             self._wake.clear()
         self.controller.restore()
         self._applied = None

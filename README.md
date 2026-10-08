@@ -8,6 +8,9 @@ Switches your AMD Radeon display settings automatically when you play
 - Settings go on while the Tarkov window is focused and come off when you alt-tab
   or close the game, so your desktop, browser and videos look normal.
 - In-game hotkeys switch between profiles such as day, night and interiors.
+- **Auto-boost in dark areas** (optional): samples the screen at 5 spots and
+  raises gamma and brightness when you walk into a dark room, then lowers
+  them again outside.
 
 The app changes the same **Display Color** settings found in AMD Software:
 Adrenalin Edition, through the AMD Display Library (`atiadlxx.dll`), which
@@ -67,12 +70,47 @@ Profiles are saved to `%APPDATA%\TarkovDisplay\config.json`, which you can
 also edit by hand. In that file, `"hue"` and `"temperature"` (Kelvin) can be
 set to a number, or to `null` to keep the driver default.
 
+## Auto-boost in dark areas
+
+Tick **Auto-boost in dark areas** in the settings window, or press
+`Ctrl+Alt+A` in game.
+
+Four times a second it reads 5 small patches of the Tarkov window: the
+centre, plus upper-left, upper-right, lower-left and lower-right of centre.
+It averages each patch, then averages the five into a single scene
+brightness:
+
+- Below **"Counts as fully dark"** (8% by default), the full boost is added
+  on top of your current profile: +0.40 gamma and +15 brightness.
+- Above **"Counts as bright"** (30%), there is no boost.
+- In between, the boost scales smoothly.
+
+Changes are eased in over the **Reaction time** (1.5 s), so a muzzle flash,
+flashlight or a glance at the sky doesn't make the screen pump. A pure black
+frame, such as a loading screen, holds the current boost instead of maxing
+it out. The screen capture sees the game's own image, before your boost is
+applied, so the boost doesn't feed back into the reading.
+
+The settings window shows the live scene brightness and boost next to the
+checkbox. To check what it sees, run `python -m tarkov_display scene` and
+alt-tab into the game. It prints the 5 readings and their average.
+
+**Run Tarkov in Borderless (windowed) mode.** In exclusive Fullscreen,
+Windows usually returns black screenshots, so auto-boost will stay where it
+is.
+
+Note: auto-boost reads the screen (like OBS or Discord screen share) and
+changes display settings in response. It never touches the game itself, but
+as with any screen-reading tool you use it at your own risk with BattlEye.
+Everything else in this app only changes driver and display settings.
+
 ## Hotkeys (work in game)
 
 | Keys | Action |
 |------|--------|
 | `Ctrl+Alt+1` … `Ctrl+Alt+9` | Switch to profile 1–9 (order shown in the dropdown) |
 | `Ctrl+Alt+0` | Turn the overlay off or on |
+| `Ctrl+Alt+A` | Turn auto-boost in dark areas off or on |
 
 With the built-in profiles: `1` = balanced, `2` = day, `3` = interiors, `4` = night.
 
@@ -83,6 +121,7 @@ python -m tarkov_display              # settings window (default)
 python -m tarkov_display watch        # no window, just run in the console
 python -m tarkov_display watch --profile night --always
 python -m tarkov_display displays     # show detected AMD displays and current values
+python -m tarkov_display scene        # live auto-boost readings from the 5 sample spots
 python -m tarkov_display list         # list profiles
 python -m tarkov_display apply day    # apply now and leave it on
 python -m tarkov_display restore      # undo 'apply'

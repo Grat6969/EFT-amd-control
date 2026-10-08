@@ -39,6 +39,13 @@ class MainWindow:
         # Tk is not thread-safe, so pick up changes made by the watcher and
         # hotkey threads from here rather than having them call into Tk.
         self.status.set(self.app.watcher.status)
+        if self.auto_on.get() != self.app.config.auto.enabled:  # Ctrl+Alt+A
+            self.auto_on.set(self.app.config.auto.enabled)
+        adj = self.app.watcher.adjuster
+        if self.app.config.auto.enabled and adj.scene is not None:
+            self.auto_readout.set(f"scene {adj.scene:.0%}, boost {adj.applied:.0%}")
+        else:
+            self.auto_readout.set("")
         if self.profile_var.get() != self.app.config.active_profile:
             self.profile_var.set(self.app.config.active_profile)
             self._load_profile()
@@ -100,15 +107,56 @@ class MainWindow:
         ).grid(row=row, column=0, columnspan=3, sticky="w", **pad)
         row += 1
 
+        row = self._build_auto(frm, row, pad)
+
         ttk.Label(
             frm,
             foreground="gray",
-            text="Hotkeys in game: Ctrl+Alt+1..9 switch profile, Ctrl+Alt+0 on/off",
+            text="Hotkeys in game: Ctrl+Alt+1..9 switch profile, Ctrl+Alt+0 on/off, Ctrl+Alt+A auto",
         ).grid(row=row, column=0, columnspan=3, sticky="w", **pad)
         row += 1
         ttk.Button(frm, text="Reset profile to built-in", command=self._reset_profile).grid(
             row=row, column=0, sticky="w", **pad
         )
+
+    def _build_auto(self, frm, row: int, pad: dict) -> int:
+        auto = self.app.config.auto
+        ttk.Separator(frm).grid(row=row, column=0, columnspan=3, sticky="ew", pady=6)
+        row += 1
+        self.auto_on = tk.BooleanVar(value=auto.enabled)
+        ttk.Checkbutton(
+            frm, text="Auto-boost in dark areas (samples 5 spots on screen)",
+            variable=self.auto_on, command=self._on_auto_changed,
+        ).grid(row=row, column=0, columnspan=2, sticky="w", **pad)
+        self.auto_readout = tk.StringVar()
+        ttk.Label(frm, textvariable=self.auto_readout, foreground="gray").grid(row=row, column=2, sticky="w")
+        row += 1
+
+        self.auto_vars = {}
+        for name, label, lo, hi, res in [
+            ("gamma_boost", "Extra gamma when dark", 0.0, 1.0, 0.05),
+            ("brightness_boost", "Extra brightness when dark", 0, 50, 1),
+            ("response_seconds", "Reaction time (s)", 0.3, 5.0, 0.1),
+            ("dark_level", "Counts as fully dark below", 0.0, 0.5, 0.01),
+            ("bright_level", "Counts as bright above", 0.05, 0.8, 0.01),
+        ]:
+            ttk.Label(frm, text=label).grid(row=row, column=0, sticky="w", **pad)
+            var = tk.DoubleVar(value=getattr(auto, name))
+            tk.Scale(
+                frm, variable=var, from_=lo, to=hi, resolution=res, orient="horizontal",
+                length=260, command=lambda _v: self._on_auto_changed(),
+            ).grid(row=row, column=1, sticky="ew", **pad)
+            self.auto_vars[name] = var
+            row += 1
+        return row
+
+    def _on_auto_changed(self) -> None:
+        auto = self.app.config.auto
+        auto.enabled = self.auto_on.get()
+        for name, var in self.auto_vars.items():
+            value = var.get()
+            setattr(auto, name, int(value) if name == "brightness_boost" else round(float(value), 2))
+        self._schedule_save()
 
     # -- profile editing ------------------------------------------------
 

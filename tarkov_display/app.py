@@ -62,12 +62,18 @@ class App:
         log.info("Paused" if self.watcher.paused else "Resumed")
         self.watcher.refresh()
 
+    def toggle_auto(self) -> None:
+        self.config.auto.enabled = not self.config.auto.enabled
+        self.save()
+        log.info("Auto-adjust %s", "on" if self.config.auto.enabled else "off")
+        self.watcher.refresh()
+
     def start(self) -> None:
         self.watcher.start()
         if self.config.hotkeys:
             from .hotkeys import Hotkeys
 
-            self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause)
+            self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause, self.toggle_auto)
             self.hotkeys.start()
 
     def shutdown(self) -> None:

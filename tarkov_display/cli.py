@@ -70,6 +70,28 @@ def cmd_displays(args) -> int:
     return 0
 
 
+def cmd_scene(args) -> int:
+    from .auto import target_boost
+    from .screen import ScreenSampler, average_samples
+
+    sampler = ScreenSampler()
+    auto = load_config().auto
+    print("Sampling the focused window at 5 spots. Alt-tab into Tarkov; Ctrl+C to stop.")
+    try:
+        while True:
+            values = sampler.sample()
+            avg = average_samples(values)
+            spots = "  ".join(f"{v:4.0%}" for v in values)
+            if avg is None:
+                print(f"{spots}  -> black (loading screen or exclusive fullscreen)")
+            else:
+                print(f"{spots}  -> average {avg:4.0%}, boost {target_boost(avg, auto):4.0%}")
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def cmd_apply(args) -> int:
     cfg = load_config()
     profile = cfg.profiles.get(args.profile)
@@ -109,6 +131,10 @@ def main(argv=None) -> int:
     sub.add_parser("list", help="list profiles").set_defaults(func=cmd_list)
     sub.add_parser("displays", help="show AMD displays and their current colour values").set_defaults(
         func=cmd_displays
+    )
+
+    sub.add_parser("scene", help="print live screen-brightness readings used by auto-boost").set_defaults(
+        func=cmd_scene
     )
 
     p = sub.add_parser("apply", help="apply a profile right now and leave it on")
