@@ -1,0 +1,9 @@
+# Windows built-in OCR, used by the Ctrl+Alt+P price check.
+# Everything else in Tarkov Display uses only the Python standard library.
+winrt-runtime; sys_platform == "win32"
+winrt-Windows.Foundation; sys_platform == "win32"
+winrt-Windows.Foundation.Collections; sys_platform == "win32"
+winrt-Windows.Globalization; sys_platform == "win32"
+winrt-Windows.Graphics.Imaging; sys_platform == "win32"
+winrt-Windows.Media.Ocr; sys_platform == "win32"
+winrt-Windows.Storage.Streams; sys_platform == "win32"

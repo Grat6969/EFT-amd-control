@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import queue
 import sys
 import time
 
@@ -31,14 +32,72 @@ def cmd_watch(args) -> int:
     if args.always:
         app.config.foreground_only = False
     app.start()
-    print("Running. Ctrl+Alt+1..9 switch profile, Ctrl+Alt+0 on/off, Ctrl+C here to quit.")
+    print("Running. Ctrl+Alt+1..9 switch profile, Ctrl+Alt+0 on/off, Ctrl+Alt+P price check, Ctrl+C to quit.")
     try:
         while True:
-            time.sleep(1)
+            try:
+                print_scan(app.scan_results.get(timeout=1))
+            except queue.Empty:
+                pass
     except KeyboardInterrupt:
         pass
     finally:
         app.shutdown()
+    return 0
+
+
+def print_scan(result) -> None:
+    from .prices import describe
+
+    if result.match:
+        print("\n".join(describe(result.match.item)))
+        print(f"  (read {result.match.text!r}, {result.match.score:.0%} sure)")
+    else:
+        print(f"No item identified. {result.error or ''} OCR read: {result.lines}")
+    if result.debug_file:
+        print(f"  saved {result.debug_file}")
+    print()
+
+
+def _prices():
+    from .prices import PriceDB
+
+    cfg = load_config()
+    db = PriceDB(default_config_dir() / f"prices_{cfg.game_mode}.json", cfg.game_mode)
+    if db.age >= db.max_age:
+        print("Downloading prices from tarkov.dev...")
+        if not db.refresh() and not db.items:
+            print(f"Couldn't download prices: {db.error}")
+    return db
+
+
+def cmd_price(args) -> int:
+    from .prices import describe
+
+    db = _prices()
+    found = db.search(" ".join(args.query), limit=args.limit)
+    if not found:
+        print("No matching items.")
+    for item in found:
+        print("\n".join(describe(item)))
+        print()
+    return 0
+
+
+def cmd_scan(args) -> int:
+    from .scanner import ItemScanner
+
+    cfg = load_config()
+    if args.debug:
+        cfg.scan.debug = True
+    scanner = ItemScanner(_prices(), cfg.scan, default_config_dir() / "scans")
+    print(f"Hover over an item in Tarkov. Scanning every {args.every:g}s; Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(args.every)
+            print_scan(scanner.scan())
+    except KeyboardInterrupt:
+        pass
     return 0
 
 
@@ -137,6 +196,16 @@ def main(argv=None) -> int:
         func=cmd_scene
     )
 
+    p = sub.add_parser("price", help="look up flea/trader prices by name")
+    p.add_argument("query", nargs="+")
+    p.add_argument("--limit", type=int, default=5)
+    p.set_defaults(func=cmd_price)
+
+    p = sub.add_parser("scan", help="repeatedly price-check the item under the mouse (for testing)")
+    p.add_argument("--every", type=float, default=3.0, help="seconds between scans")
+    p.add_argument("--debug", action="store_true", help="save each capture to the scans folder")
+    p.set_defaults(func=cmd_scan)
+
     p = sub.add_parser("apply", help="apply a profile right now and leave it on")
     p.add_argument("profile")
     p.set_defaults(func=cmd_apply)
@@ -146,7 +215,7 @@ def main(argv=None) -> int:
     )
 
     args = parser.parse_args(argv)
-    if sys.platform != "win32" and args.command not in ("list",):
+    if sys.platform != "win32" and args.command not in ("list", "price"):
         print("tarkov-display controls Windows display drivers and only runs on Windows.")
         return 1
     setup_logging(args.verbose)

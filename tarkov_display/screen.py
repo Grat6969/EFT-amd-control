@@ -56,8 +56,25 @@ def sample_boxes(rect: Rect, points: Sequence[Tuple[float, float]] = SAMPLE_POIN
     return boxes
 
 
+def to_bmp(bgra: bytes, w: int, h: int) -> bytes:
+    """Encode top-down BGRA pixels as a 24-bit BMP file (for OCR tools and debug saves)."""
+    import struct
+
+    rgb = bytearray(w * h * 3)
+    rgb[0::3] = bgra[0::4]
+    rgb[1::3] = bgra[1::4]
+    rgb[2::3] = bgra[2::4]
+    row = w * 3
+    pad = b"\0" * ((4 - row % 4) % 4)
+    # BMP rows are stored bottom-up.
+    pixels = b"".join(bytes(rgb[r * row:(r + 1) * row]) + pad for r in range(h - 1, -1, -1))
+    header = struct.pack("<2sIHHI", b"BM", 54 + len(pixels), 0, 0, 54)
+    info = struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0, len(pixels), 2835, 2835, 0, 0)
+    return header + info + pixels
+
+
 class ScreenSampler:
-    """Captures the sample boxes with GDI (Windows only)."""
+    """Captures screen regions with GDI (Windows only)."""
 
     def __init__(self) -> None:
         from ctypes import wintypes
@@ -88,6 +105,12 @@ class ScreenSampler:
             wintypes.HDC, wintypes.HBITMAP, wintypes.UINT, wintypes.UINT,
             ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT,
         ]
+        self._gdi32.StretchBlt.argtypes = (
+            [wintypes.HDC] + [ctypes.c_int] * 4 + [wintypes.HDC] + [ctypes.c_int] * 4 + [wintypes.DWORD]
+        )
+        self._gdi32.SetStretchBltMode.argtypes = [wintypes.HDC, ctypes.c_int]
+        self._gdi32.SetBrushOrgEx.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+        self._user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
         self._gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
         self._gdi32.DeleteDC.argtypes = [wintypes.HDC]
 
@@ -103,9 +126,8 @@ class ScreenSampler:
                     return pt.x, pt.y, rc.right, rc.bottom
         return 0, 0, self._user32.GetSystemMetrics(0), self._user32.GetSystemMetrics(1)
 
-    def sample(self) -> List[float]:
-        boxes = sample_boxes(self.target_rect())
-        size = boxes[0][2]
+    def grab(self, x: int, y: int, w: int, h: int, scale: int = 1) -> Tuple[bytes, int, int]:
+        """Capture a screen rectangle as top-down 32-bit BGRA, optionally enlarged."""
 
         class BITMAPINFOHEADER(ctypes.Structure):
             _fields_ = [
@@ -116,34 +138,52 @@ class ScreenSampler:
                 ("biClrUsed", ctypes.c_uint32), ("biClrImportant", ctypes.c_uint32),
             ]
 
+        ow, oh = w * scale, h * scale
         bmi = BITMAPINFOHEADER()
         bmi.biSize = ctypes.sizeof(bmi)
-        bmi.biWidth = size
-        bmi.biHeight = -size  # top-down
+        bmi.biWidth = ow
+        bmi.biHeight = -oh  # top-down
         bmi.biPlanes = 1
         bmi.biBitCount = 32
-        buf = (ctypes.c_ubyte * (size * size * 4))()
+        buf = (ctypes.c_ubyte * (ow * oh * 4))()
 
         SRCCOPY = 0x00CC0020
+        HALFTONE = 4
         screen = self._user32.GetDC(None)
         mem = self._gdi32.CreateCompatibleDC(screen)
-        bmp = self._gdi32.CreateCompatibleBitmap(screen, size, size)
+        bmp = self._gdi32.CreateCompatibleBitmap(screen, ow, oh)
         old = self._gdi32.SelectObject(mem, bmp)
-        values = []
         try:
-            for x, y, w, h in boxes:
-                self._gdi32.SelectObject(mem, bmp)
+            if scale == 1:
                 ok = self._gdi32.BitBlt(mem, 0, 0, w, h, screen, x, y, SRCCOPY)
-                # GetDIBits needs the bitmap deselected from the DC.
-                self._gdi32.SelectObject(mem, old)
-                if not ok or self._gdi32.GetDIBits(screen, bmp, 0, h, buf, ctypes.byref(bmi), 0) != h:
-                    continue
-                values.append(box_luminance(bytes(buf), w * h))
+            else:
+                self._gdi32.SetStretchBltMode(mem, HALFTONE)
+                self._gdi32.SetBrushOrgEx(mem, 0, 0, None)
+                ok = self._gdi32.StretchBlt(mem, 0, 0, ow, oh, screen, x, y, w, h, SRCCOPY)
+            # GetDIBits needs the bitmap deselected from the DC.
+            self._gdi32.SelectObject(mem, old)
+            if not ok or self._gdi32.GetDIBits(screen, bmp, 0, oh, buf, ctypes.byref(bmi), 0) != oh:
+                raise OSError("screen capture failed")
         finally:
             self._gdi32.SelectObject(mem, old)
             self._gdi32.DeleteObject(bmp)
             self._gdi32.DeleteDC(mem)
             self._user32.ReleaseDC(None, screen)
+        return bytes(buf), ow, oh
+
+    def cursor_pos(self) -> Tuple[int, int]:
+        pt = self._wt.POINT()
+        self._user32.GetCursorPos(ctypes.byref(pt))
+        return pt.x, pt.y
+
+    def sample(self) -> List[float]:
+        values = []
+        for x, y, w, h in sample_boxes(self.target_rect()):
+            try:
+                bgra, _, _ = self.grab(x, y, w, h)
+            except OSError:
+                continue
+            values.append(box_luminance(bgra, w * h))
         return values
 
     def scene_brightness(self) -> Optional[float]:

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import atexit
 import logging
+import queue
 import sys
+import threading
 from pathlib import Path
 from typing import Callable, Optional
 
 from .controller import DisplayController
+from .prices import PriceDB
 from .profiles import Config, default_config_dir, load_config, save_config
 from .watcher import GameWatcher
 
@@ -38,6 +41,10 @@ class App:
         self.controller = DisplayController.create(self.config_path.parent / "original_settings.json")
         self.controller.recover()
         self.watcher = GameWatcher(self.controller, self.config, on_change=on_status)
+        self.prices = PriceDB(self.config_path.parent / f"prices_{self.config.game_mode}.json", self.config.game_mode)
+        self.scanner = None
+        self.scan_results: "queue.Queue" = queue.Queue()
+        self._scanning = threading.Lock()
         self.hotkeys = None
         atexit.register(self.shutdown)
 
@@ -68,17 +75,39 @@ class App:
         log.info("Auto-adjust %s", "on" if self.config.auto.enabled else "off")
         self.watcher.refresh()
 
+    def request_scan(self) -> None:
+        """Price-check the item under the cursor (runs off the calling thread)."""
+        if not self._scanning.acquire(blocking=False):
+            return  # a scan is already running
+        threading.Thread(target=self._scan, name="Scan", daemon=True).start()
+
+    def _scan(self) -> None:
+        from .scanner import ItemScanner, ScanResult
+
+        try:
+            if self.scanner is None:
+                self.scanner = ItemScanner(self.prices, self.config.scan, self.config_path.parent / "scans")
+            result = self.scanner.scan()
+        except Exception as exc:
+            log.warning("Scan failed: %s", exc)
+            result = ScanResult(None, error=str(exc))
+        finally:
+            self._scanning.release()
+        self.scan_results.put(result)
+
     def start(self) -> None:
         self.watcher.start()
+        self.prices.start()
         if self.config.hotkeys:
             from .hotkeys import Hotkeys
 
-            self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause, self.toggle_auto)
+            self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause, self.toggle_auto, self.request_scan)
             self.hotkeys.start()
 
     def shutdown(self) -> None:
         if self.hotkeys:
             self.hotkeys.stop()
             self.hotkeys = None
+        self.prices.stop()
         self.watcher.stop()
         self.controller.restore()

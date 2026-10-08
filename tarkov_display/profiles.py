@@ -70,6 +70,27 @@ class AutoConfig:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+@dataclass
+class ScanConfig:
+    """Price check of the item under the mouse (Ctrl+Alt+P)."""
+
+    # Area captured around the cursor, in pixels on a 1080p screen (scaled
+    # for other resolutions). Covers Tarkov's name tooltip and the short
+    # name printed on the item's own grid cell.
+    left: int = 160
+    right: int = 520
+    up: int = 90
+    down: int = 90
+    scale: int = 2           # enlarge before OCR; small text reads better
+    popup_seconds: float = 8.0
+    debug: bool = False      # save each capture and what was read
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ScanConfig":
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+
 def default_config_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home() / ".config")
     return Path(base) / "TarkovDisplay"
@@ -88,6 +109,8 @@ class Config:
     hotkeys: bool = True
     poll_seconds: float = 1.0
     auto: AutoConfig = field(default_factory=AutoConfig)
+    scan: ScanConfig = field(default_factory=ScanConfig)
+    game_mode: str = "regular"  # or "pve" for PvE flea prices
 
     @property
     def profile(self) -> Profile:
@@ -105,6 +128,8 @@ class Config:
             "hotkeys": self.hotkeys,
             "poll_seconds": self.poll_seconds,
             "auto": asdict(self.auto),
+            "scan": asdict(self.scan),
+            "game_mode": self.game_mode,
         }
 
     @classmethod
@@ -117,6 +142,10 @@ class Config:
                 setattr(cfg, key, data[key])
         if isinstance(data.get("auto"), dict):
             cfg.auto = AutoConfig.from_dict(data["auto"])
+        if isinstance(data.get("scan"), dict):
+            cfg.scan = ScanConfig.from_dict(data["scan"])
+        if data.get("game_mode") in ("regular", "pve"):
+            cfg.game_mode = data["game_mode"]
         if cfg.active_profile not in cfg.profiles:
             cfg.active_profile = next(iter(cfg.profiles))
         return cfg

@@ -7,6 +7,8 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
 from .app import App
+from .gui_prices import PricesTab, ScanPopup
+from .prices import describe
 from .profiles import Profile
 
 log = logging.getLogger(__name__)
@@ -25,7 +27,6 @@ class MainWindow:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title("Tarkov Display")
-        self.root.resizable(False, False)
         self.status = tk.StringVar(value="starting...")
         self.app = App()
         self._save_job = None
@@ -49,14 +50,44 @@ class MainWindow:
         if self.profile_var.get() != self.app.config.active_profile:
             self.profile_var.set(self.app.config.active_profile)
             self._load_profile()
-        self.root.after(300, self._poll)
+        self._poll_scans()
+        self._poll_count = getattr(self, "_poll_count", 0) + 1
+        if self._poll_count % 10 == 0:
+            self.prices_tab.update_info()
+        self.root.after(150, self._poll)
+
+    def _poll_scans(self) -> None:
+        import queue
+
+        try:
+            result = self.app.scan_results.get_nowait()
+        except queue.Empty:
+            return
+        seconds = self.app.config.scan.popup_seconds
+        if result.match:
+            self.popup.show(describe(result.match.item), result.cursor, seconds)
+            self.prices_tab.search(result.match.item.name)
+        elif result.error:
+            self.popup.show(["Price check failed", result.error], result.cursor, seconds)
+        else:
+            read = ", ".join(result.lines[:3]) or "nothing"
+            self.popup.show(
+                ["Couldn't identify the item", f"Read: {read[:80]}", "Hover until the name tooltip shows, then retry."],
+                result.cursor, seconds,
+            )
 
     # -- layout ---------------------------------------------------------
 
     def _build(self) -> None:
         pad = {"padx": 10, "pady": 4}
-        frm = ttk.Frame(self.root, padding=10)
-        frm.grid(sticky="nsew")
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill="both", expand=True)
+        frm = ttk.Frame(notebook, padding=10)
+        notebook.add(frm, text="Display")
+        self.prices_tab = PricesTab(notebook, self.app.prices)
+        notebook.add(self.prices_tab.frame, text="Prices")
+        self.notebook = notebook
+        self.popup = ScanPopup(self.root)
 
         ttk.Label(frm, textvariable=self.status, font=("Segoe UI", 10, "bold")).grid(
             row=0, column=0, columnspan=3, sticky="w", **pad
@@ -112,7 +143,7 @@ class MainWindow:
         ttk.Label(
             frm,
             foreground="gray",
-            text="Hotkeys in game: Ctrl+Alt+1..9 switch profile, Ctrl+Alt+0 on/off, Ctrl+Alt+A auto",
+            text="Hotkeys in game: Ctrl+Alt+1..9 profile, Ctrl+Alt+0 on/off, Ctrl+Alt+A auto, Ctrl+Alt+P price check",
         ).grid(row=row, column=0, columnspan=3, sticky="w", **pad)
         row += 1
         ttk.Button(frm, text="Reset profile to built-in", command=self._reset_profile).grid(
