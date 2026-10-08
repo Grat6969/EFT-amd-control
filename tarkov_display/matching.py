@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Sequence
 from .prices import Item, normalize
 
 MIN_SCORE = 0.72
+FULL_NAME_SCORE = 0.9  # a full-name match this good is the hover tooltip
 
 
 @dataclass
@@ -16,6 +17,7 @@ class Match:
     item: Item
     score: float
     text: str
+    full: bool = False  # matched the full name (only the tooltip shows it), not the short name
 
 
 class ItemMatcher:
@@ -35,7 +37,7 @@ class ItemMatcher:
         if len(line) < 2:
             return None
         if line in self.by_name:
-            return Match(self.by_name[line], 1.0, text)
+            return Match(self.by_name[line], 1.0, text, full=True)
         if line in self.by_short:
             return Match(self.by_short[line], 0.98, text)
 
@@ -44,13 +46,13 @@ class ItemMatcher:
         if len(line) >= 6:
             for name in self.names:
                 if len(name) >= 6 and name in line:
-                    best = Match(self.by_name[name], 0.95, text)
+                    best = Match(self.by_name[name], 0.95, text, full=True)
                     break  # names are sorted longest first
         if best is None:
             close = difflib.get_close_matches(line, self.names, n=1, cutoff=MIN_SCORE)
             if close:
                 score = difflib.SequenceMatcher(None, line, close[0]).ratio()
-                best = Match(self.by_name[close[0]], score, text)
+                best = Match(self.by_name[close[0]], score, text, full=True)
         if len(line) >= 3:
             close = difflib.get_close_matches(line, self.shorts, n=1, cutoff=0.8)
             if close:
@@ -60,20 +62,22 @@ class ItemMatcher:
         return best
 
     def match_lines(self, lines: Sequence[str]) -> Optional[Match]:
-        """Pick the best item for OCR lines ordered nearest-to-cursor first.
+        """Pick the item for OCR lines ordered nearest-to-cursor first.
 
-        A confident match close to the cursor wins over a slightly better
-        one further away, so neighbouring items don't steal the result.
+        Only the hover tooltip shows an item's full name; the grid shows
+        short names. So the nearest good full-name match wins, even over a
+        neighbouring item's short name closer to the cursor. Without one,
+        the nearest confident match wins over a slightly better one further
+        away.
         """
-        best: Optional[Match] = None
-        for text in lines:
-            m = self.match_line(text)
-            if m is None:
-                continue
+        matches = [m for m in (self.match_line(text) for text in lines) if m is not None]
+        for m in matches:
+            if m.full and m.score >= FULL_NAME_SCORE:
+                return m
+        for m in matches:
             if m.score >= 0.95:
                 return m
-            if best is None or m.score > best.score:
-                best = m
+        best = max(matches, key=lambda m: m.score, default=None)
         return best if best and best.score >= MIN_SCORE else None
 
 

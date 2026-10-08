@@ -336,7 +336,16 @@ def test_match_ocr_text():
 def test_nearest_line_wins():
     m = ItemMatcher(db().items)
     # Nearest the cursor first: a confident hit there beats a neighbour.
-    assert m.match_lines(["Tetriz", "LEDX Skin Transilluminator"]).item.id == "tetriz"
+    assert m.match_lines(["LEDX", "Tetriz"]).item.id == "ledx"
+    assert m.match_lines(["Graphics card", "Tetriz portable game console"]).item.id == "gpu"
+
+
+def test_tooltip_name_beats_neighbouring_short_name():
+    m = ItemMatcher(db().items)
+    # The grid cell next to the cursor says "Tetriz"; the tooltip a bit
+    # further away names the item actually hovered.
+    assert m.match_lines(["Tetriz", "LEDX Skin Transilluminator"]).item.id == "ledx"
+    assert m.match_lines(["Tetriz", "LEDX Skin Transilurninator"]).item.id == "ledx"  # OCR slip
 
 
 def test_wrapped_name():
