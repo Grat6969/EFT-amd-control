@@ -162,6 +162,9 @@ def cmd_apply(args) -> int:
         print(f"Unknown profile '{args.profile}'. Try: {', '.join(cfg.profile_names())}")
         return 2
     ctl = DisplayController.create(default_config_dir() / "original_settings.json")
+    # Back to the saved originals first, so applying twice doesn't save the
+    # first profile as your "original" settings.
+    ctl.recover()
     ctl.apply(profile)
     print(f"Applied '{args.profile}'. Run 'restore' to go back to your normal settings.")
     return 0

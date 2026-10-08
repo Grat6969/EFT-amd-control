@@ -98,6 +98,21 @@ def test_recover_after_crash(tmp_path):
     assert not state.exists()
 
 
+def test_cli_apply_twice_keeps_the_real_originals(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from tarkov_display import cli
+
+    adl, gamma = FakeADL(), FakeGamma()
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(cli.DisplayController, "create", classmethod(lambda cls, path: cls(adl, gamma, path)))
+    cli.cmd_apply(SimpleNamespace(profile="night"))
+    cli.cmd_apply(SimpleNamespace(profile="day"))
+    assert adl.values["saturation"] == Config().profiles["day"].saturation
+    cli.cmd_restore(SimpleNamespace())
+    assert adl.values["saturation"] == 110 and gamma.ramps[r"\\.\DISPLAY1"] == identity_ramp()
+
+
 def test_gamma_only_fallback_emulates_brightness(tmp_path):
     gamma = FakeGamma()
     ctl = DisplayController(None, gamma, tmp_path / "s.json")
