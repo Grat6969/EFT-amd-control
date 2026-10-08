@@ -117,6 +117,14 @@ name with Windows' built-in text recognition and looks it up in the price list. 
 Tarkov in **Borderless** window mode; exclusive fullscreen hides the popup and gives
 black screenshots.
 
+If nothing shows up when you press it:
+
+- Check **Display → Price check**: it says whether a text reader is installed (if not,
+  run `install.bat` and restart the app) and whether another program already uses
+  `Ctrl+Alt+P` (overlays such as Discord, Steam, AMD or NVIDIA often do; change it there).
+- Use **Borderless** window mode in Tarkov.
+- Wait until the item's name tooltip is showing before pressing the keys.
+
 If it misreads items, turn on **Display → Price check → Save each capture** (captures
 go to `%APPDATA%\TarkovDisplay\scans`) or run `python -m tarkov_display scan --debug`.
 The capture area can be adjusted in `config.json` under `"scan"`.
@@ -158,6 +166,9 @@ contrast emulated, no saturation). Everything else works on any PC.
 | `Ctrl+Alt+A` | Turn auto-boost off / on |
 | `Ctrl+Alt+P` | Price-check the item under the mouse |
 
+If another program already uses one of these, Windows gives it to that program; the
+**Display** page lists any that are taken.
+
 ## Where the data comes from
 
 - **[tarkov.dev](https://tarkov.dev)**: a free, open-source community API built from the
@@ -184,7 +195,7 @@ when each part was last updated and has refresh buttons.
 - It only talks to tarkov.dev, GitHub (for updates and map/wipe data), the image hosts
   used by tarkov.dev, and TarkovTracker if you add a token.
 - The game log reader (off by default) only reads Tarkov's log files.
-- It never reads or changes the game's memory, files or process.
+- It never reads or changes the game's memory or process, and never changes its files.
 
 ## Command line
 
