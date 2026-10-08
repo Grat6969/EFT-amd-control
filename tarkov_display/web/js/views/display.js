@@ -120,14 +120,20 @@ export default {
     };
 
     const scanCard = () => {
-      const s = store.display.scan;
+      const s = store.display.scan, engine = store.display.ocr;
       return h("div",
+        h("div.chips", { style: { marginBottom: "10px" } },
+          engine ? badge(`Reads text with ${engine}`, "good") : badge("No OCR engine", "bad"),
+          store.display.hotkeys ? null : badge("Hotkeys are off", "warn")),
+        engine ? null : h("div.note.warn", { style: { marginBottom: "10px" } }, icon("alert", 16),
+          h("div", "Run ", h("code", "install.bat"), " from the app folder (it adds the text reader built into Windows), then restart the app.")),
         slider("Popup stays for", s.popup_seconds, [2, 30, 1], (v) => `${v} s`,
           debounce((v) => displayChange({ op: "scan", settings: { popup_seconds: v } }), 300)),
         h("div", { style: { marginTop: "8px" } }, toggle("Save each capture for troubleshooting", s.debug,
           (v) => displayChange({ op: "scan", settings: { debug: v } }), "Saves what was captured and read to %APPDATA%\\TarkovDisplay\\scans")),
         h("div.muted.small", { style: { marginTop: "10px" } },
-          "Hover over an item in game until its name shows, then press Ctrl+Alt+P. Takes one screenshot around the mouse only when you press it."));
+          "Hover over an item in game until its name shows, then press Ctrl+Alt+P. Takes one screenshot around the mouse only when you press it. "
+          + "Use Borderless window mode in Tarkov: in exclusive fullscreen the screenshot comes out black and the popup can't show."));
     };
 
     mount(root,

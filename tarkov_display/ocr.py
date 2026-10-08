@@ -149,6 +149,18 @@ class TesseractOcr:
         return parse_tesseract_tsv(out.stdout)
 
 
+def available_engine() -> Optional[str]:
+    """The OCR engine a price check would use, found without starting it."""
+    import importlib.util
+
+    try:
+        if importlib.util.find_spec("winrt.windows.media.ocr"):
+            return "Windows OCR"
+    except (ImportError, ValueError):
+        pass
+    return "Tesseract" if find_tesseract() else None
+
+
 def create_ocr():
     errors = []
     for cls in (WindowsOcr, TesseractOcr):

@@ -15,6 +15,7 @@ from . import APP_NAME, __version__
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
+from .ocr import available_engine
 from .prices import PriceDB, rub
 from .profiles import BUILTIN_PROFILES, Profile, load_config
 from .progress import Progress
@@ -59,6 +60,7 @@ class WebApp:
         self._last_left: Optional[float] = None
         self._started = time.time()
         self._displays = self._display_names()
+        self._ocr_engine = available_engine()
         self.popup = None
         self.link = GameLink(self)
         self.server = self._bind(port or cfg.port, restarted)
@@ -216,6 +218,7 @@ class WebApp:
             "gamma": bool(ctl.gamma),
             "displays": self._displays,
             "hotkeys": cfg.hotkeys,
+            "ocr": self._ocr_engine,
         }
 
     def display_change(self, op) -> dict:

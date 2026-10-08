@@ -350,6 +350,20 @@ def test_order_by_distance():
     assert [l.text for l in order_by_distance(lines, 320, 180)] == ["near", "mid", "far"]
 
 
+def test_available_ocr_engine(monkeypatch):
+    import importlib.util
+
+    from tarkov_display import ocr
+
+    monkeypatch.setattr(ocr, "find_tesseract", lambda: None)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: (_ for _ in ()).throw(ModuleNotFoundError(name)))
+    assert ocr.available_engine() is None
+    monkeypatch.setattr(ocr, "find_tesseract", lambda: "tesseract.exe")
+    assert ocr.available_engine() == "Tesseract"
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    assert ocr.available_engine() == "Windows OCR"
+
+
 def test_parse_tesseract_tsv():
     tsv = "\n".join([
         "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
