@@ -1,6 +1,7 @@
 import io
 import json
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -309,3 +310,19 @@ def test_events_load_missing_data(web, tmp_path):
     events = {d["kind"]: d for e, d in web.published if e == "gamelog"}
     assert events["raid"]["name"] == "Customs"
     assert events["quest"]["name"] == "Painkiller" and events["quest"]["added"] == 3
+
+
+def test_mode_switch_is_one_step_for_log_quests(web):
+    # While a quest from the logs is being saved, the switch waits, so the
+    # quest can't land in the other mode's progress.
+    switched = threading.Event()
+    with web.link.lock:
+        threading.Thread(target=lambda: (web.set_game_mode("pve"), switched.set()), daemon=True).start()
+        assert not switched.wait(0.3)
+        assert web.app.config.game_mode == "regular"
+    assert switched.wait(10)
+    web.app.prices.stop()
+    assert web.app.config.game_mode == "pve" and web.store.game_mode == "pve"
+    web.link.finish_quests("pve", [demo_task("Debut")["id"]])
+    assert web.progress.snapshot()["tasks"] == [demo_task("Debut")["id"]]
+    assert Progress(web.cfg_dir / "progress_regular.json").snapshot()["tasks"] == []

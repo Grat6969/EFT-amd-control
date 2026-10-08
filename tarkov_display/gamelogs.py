@@ -42,6 +42,7 @@ MODES = {"regular": "regular", "pvp": "regular", "pve": "pve", "pvpseason": "sea
 # "2025-11-20 19:45:12.345 +01:00|1.0.0.1.39390|Info|application|Session mode: Regular"
 HEADER = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.\d+)?(?: [+-]\d{2}:\d{2})?\|(.*)$")
 LOG_FILE = re.compile(r"(application|notifications)(?:_\d+)?\.log$", re.IGNORECASE)
+SESSION_FOLDER = re.compile(r"^log_(\d{4})\.(\d{1,2})\.(\d{1,2})_(\d{1,2})-(\d{1,2})-(\d{1,2})")
 
 
 @dataclass
@@ -123,13 +124,31 @@ def find_logs_folder() -> Optional[Path]:
     return None
 
 
+def session_time(folder: Path) -> Optional[tuple]:
+    """When a session started, from its folder name ("log_2025.11.20_9-45-12_<version>";
+    the hour isn't zero-padded, so names don't sort as text)."""
+    m = SESSION_FOLDER.match(folder.name)
+    return tuple(int(g) for g in m.groups()) if m else None
+
+
+def _mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def session_folders(logs: Path) -> List[Path]:
-    """Session folders, oldest first."""
+    """Session folders, oldest first, ordered by the time in their names like
+    TarkovMonitor does. Other folders are ignored unless no name has a time."""
     try:
         folders = [p for p in logs.iterdir() if p.is_dir()]
     except OSError:
         return []
-    return sorted(folders, key=lambda p: (p.stat().st_mtime, p.name))
+    named = sorted((session_time(p), p.name, p) for p in folders if session_time(p))
+    if named:
+        return [p for _, _, p in named]
+    return sorted(folders, key=lambda p: (_mtime(p), p.name))
 
 
 def log_files(session: Path) -> List[Path]:

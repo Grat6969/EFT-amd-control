@@ -317,15 +317,18 @@ class WebApp:
         app, cfg = self.app, self.app.config
         if mode == cfg.game_mode:
             return
-        cfg.game_mode = mode
+        prices = PriceDB(self.cfg_dir / f"prices_{mode}.json", mode)
+        store, progress = self._make_store(mode), Progress(self.cfg_dir / f"progress_{mode}.json")
+        # All at once, so a quest read from the game logs meanwhile can't be
+        # saved into the other mode's progress.
+        with self.link.lock:
+            cfg.game_mode = mode
+            old, app.prices = app.prices, prices
+            self.store, self.progress = store, progress
+            app.scanner = None
         app.save()
-        old = app.prices
         old.stop()
-        app.prices = PriceDB(self.cfg_dir / f"prices_{mode}.json", mode)
-        app.prices.start()
-        app.scanner = None
-        self.store = self._make_store(mode)
-        self.progress = Progress(self.cfg_dir / f"progress_{mode}.json")
+        prices.start()
         log.info("Game mode -> %s", mode)
         self.publish("reload", {"gameMode": mode})
 

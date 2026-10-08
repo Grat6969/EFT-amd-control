@@ -171,6 +171,19 @@ def test_scan_history_per_mode(tmp_path):
     assert result["modes"]["pve"]["failed"] == ["pve-2"]
 
 
+def test_sessions_ordered_by_folder_name_time(tmp_path):
+    logs = tmp_path / "Logs"
+    now = time.time()
+    # Modified times say the opposite of the names; the names win.
+    make_session(logs, "log_2025.11.20_19-45-12_1.0.0.1", now - 300)
+    make_session(logs, "log_2025.11.20_9-05-00_1.0.0.1", now - 100)    # hour isn't zero-padded
+    make_session(logs, "log_2025.11.21_0-10-00_1.0.0.2", now - 400)
+    (logs / "Crashes").mkdir()                                       # not a session: ignored
+    assert [p.name for p in gamelogs.session_folders(logs)] == [
+        "log_2025.11.20_9-05-00_1.0.0.1", "log_2025.11.20_19-45-12_1.0.0.1", "log_2025.11.21_0-10-00_1.0.0.2"]
+    assert gamelogs.session_folders(tmp_path / "missing") == []
+
+
 def test_logs_folder_locations(tmp_path):
     assert logs_folder_in(tmp_path) is None
     (tmp_path / "build" / "Logs").mkdir(parents=True)

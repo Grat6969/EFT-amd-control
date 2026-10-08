@@ -49,7 +49,8 @@ class GameLink:
         self.game_mode: Optional[str] = None  # mode Tarkov is in, from its logs
         self.scan_result: Optional[dict] = None
         self.tracker_status: dict = {}
-        self._lock = threading.Lock()
+        self.lock = threading.Lock()  # held while progress is written and while the app switches mode
+        self._stores: dict = {}  # tarkov.dev data for the mode the app isn't showing
 
     @property
     def cfg(self):
@@ -65,7 +66,10 @@ class GameLink:
     def data_for(self, mode: str, name: str, fetch: bool = False):
         """A tarkov.dev dataset for a game mode; with ``fetch``, downloads it
         (waiting a little) if the app hasn't loaded it yet."""
-        store = self.web.store if mode == self.cfg.game_mode else DataStore(self.web.cfg_dir, mode)
+        if mode == self.cfg.game_mode:
+            store = self.web.store
+        else:
+            store = self._stores.get(mode) or self._stores.setdefault(mode, DataStore(self.web.cfg_dir, mode))
         data = store.snapshot(name)["data"]
         if data is None and fetch:
             data = store.get(name, wait=20)["data"]
@@ -79,7 +83,7 @@ class GameLink:
             for x in [qid, *prerequisite_ids(qid, tasks)]:
                 if x not in wanted:
                     wanted.append(x)
-        with self._lock:
+        with self.lock:
             progress = self.progress_for(mode)
             done = set(progress.snapshot()["tasks"])
             new = [x for x in wanted if x not in done]
@@ -200,7 +204,7 @@ class GameLink:
             if mode not in GAME_MODES:
                 continue
             done = set(self.progress_for(mode).snapshot()["tasks"])
-            tasks = self.data_for(mode, "tasks")
+            tasks = self.data_for(mode, "tasks", fetch=True)
             implied = {p for q in found["finished"] for p in prerequisite_ids(q, tasks)}
             summary["modes"][mode] = {
                 "finished": len(found["finished"]),
@@ -285,17 +289,15 @@ class GameLink:
     def tracker_import(self, mode: str) -> dict:
         if mode not in GAME_MODES:
             raise ValueError("bad game mode")
-        if mode == self.cfg.game_mode:
-            self.web.store.get("hideout", wait=25)
-            self.web.store.get("tasks", wait=25)
         try:
             data = self.client(mode).progress()
         except TrackerError as exc:
             self.tracker_status[mode] = {"ok": False, "message": str(exc), "time": time.time()}
             raise ValueError(str(exc)) from None
-        with self._lock:
+        stations = self.data_for(mode, "hideout", fetch=True)
+        with self.lock:
             progress = self.progress_for(mode)
-            summary = merge_progress(progress, data, self.data_for(mode, "hideout"))
+            summary = merge_progress(progress, data, stations)
             if mode == self.cfg.game_mode:
                 self.web.publish("progress", progress.snapshot())
         self.cfg.tracker.last[mode] = {"time": time.time(), "summary": summary}
