@@ -1,4 +1,4 @@
-# Updates Tarkov Display to the latest version from GitHub.
+# Updates Tarkov Companion to the latest version from GitHub.
 # Your profiles and settings live in %APPDATA%\TarkovDisplay and are not touched.
 
 $ErrorActionPreference = 'Stop'
@@ -10,13 +10,14 @@ $Package = Join-Path $AppDir 'tarkov_display'
 $Backup = Join-Path $AppDir 'tarkov_display.old'
 $Tmp = Join-Path ([IO.Path]::GetTempPath()) ('TarkovDisplay-update-' + [guid]::NewGuid())
 
-Write-Host "Updating Tarkov Display in $AppDir"
+Write-Host "Updating Tarkov Companion in $AppDir"
 Write-Host ''
 
 $running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*tarkov_display*' -or $_.Name -eq 'TarkovDisplay.exe' }
+    Where-Object { $_.CommandLine -like '*tarkov_display*' -or $_.Name -in 'TarkovCompanion.exe', 'TarkovDisplay.exe' }
 if ($running) {
-    Write-Host 'Tarkov Display is still running. Close it (and any console running it), then run update.bat again.' -ForegroundColor Yellow
+    Write-Host 'Tarkov Companion is still running. Quit it (Settings > Quit the app, or end pythonw.exe in Task Manager), then run update.bat again.' -ForegroundColor Yellow
+    Write-Host 'You can also update from inside the app: Settings > Updates.'
     exit 1
 }
 
@@ -29,7 +30,7 @@ try {
     Expand-Archive -Path $zip -DestinationPath (Join-Path $Tmp 'x')
     $src = (Get-ChildItem (Join-Path $Tmp 'x') -Directory | Select-Object -First 1).FullName
     if (-not $src -or -not (Test-Path (Join-Path $src 'tarkov_display\__init__.py'))) {
-        throw 'The download does not look like Tarkov Display.'
+        throw 'The download does not look like Tarkov Companion.'
     }
 
     # Replace the code folder as a whole so files removed upstream don't linger,

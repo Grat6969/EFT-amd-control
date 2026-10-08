@@ -14,7 +14,9 @@ An all-in-one helper for **Escape from Tarkov** on Windows:
   contrast, gamma), with an optional boost when you walk into dark areas.
 - **One-click updates** from inside the app.
 
-It never touches the game's memory, files or process.
+It never touches the game's memory or process and never changes its files. The only
+game files it opens are Tarkov's log files, read-only, and only if you turn the log
+reader on.
 
 ## Install
 

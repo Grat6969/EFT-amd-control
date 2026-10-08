@@ -256,7 +256,8 @@ class Server:
 
             def _token_ok(self, query: dict) -> bool:
                 given = self.headers.get("X-Token") or (query.get("token") or [""])[0]
-                return bool(given) and hmac.compare_digest(given, server.token)
+                # As bytes: compare_digest refuses str with non-ASCII characters.
+                return bool(given) and hmac.compare_digest(given.encode("utf-8", "replace"), server.token.encode())
 
             # -- methods ---------------------------------------------------
 
@@ -287,6 +288,7 @@ class Server:
                         raise HttpError(405, "method not allowed")
                     return self._static(path)
                 except HttpError as exc:
+                    self.close_connection = True  # any request body wasn't read
                     self._json(exc.status, {"error": exc.message})
                 except (BrokenPipeError, ConnectionResetError):
                     pass

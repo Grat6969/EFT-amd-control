@@ -61,6 +61,8 @@ def server():
 def test_token_and_host_are_required(server):
     assert call(server, "/api/bootstrap")[0] == 200
     assert call(server, "/api/bootstrap", token=False)[0] == 403
+    assert call(server, "/api/bootstrap?token=%C3%BC", token=False)[0] == 403  # not a 500
+    assert call(server, "/api/bootstrap", token=False, headers={"X-Token": "\u00fc"})[0] == 403
     status, body, _ = call(server, "/api/bootstrap", headers={"Host": "evil.example"})
     assert status == 403 and b"bad host" in body
     # Hello is open (used to find a running copy) but still checks the host.
