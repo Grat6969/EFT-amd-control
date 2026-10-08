@@ -218,6 +218,7 @@ class WebApp:
             "gamma": bool(ctl.gamma),
             "displays": self._displays,
             "hotkeys": cfg.hotkeys,
+            "hotkeysTaken": list(app.hotkeys.failed) if app.hotkeys else [],
             "ocr": self._ocr_engine,
         }
 

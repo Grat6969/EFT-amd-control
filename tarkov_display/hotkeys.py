@@ -11,7 +11,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import threading
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ class Hotkeys:
         self.on_scan = on_scan
         self._thread: Optional[threading.Thread] = None
         self._thread_id = 0
+        self.failed: List[str] = []  # hotkeys another program already uses
 
     def _run(self) -> None:
         from ctypes import wintypes
@@ -51,12 +52,14 @@ class Hotkeys:
             if user32.RegisterHotKey(None, digit + 1, mods, vk):
                 registered.append(digit + 1)
             else:
-                log.warning("Ctrl+Alt+%d is already used by another program", digit)
+                self.failed.append(f"Ctrl+Alt+{digit}")
         for hid, key in ((AUTO_HOTKEY_ID, "A"), (SCAN_HOTKEY_ID, "P")):
             if user32.RegisterHotKey(None, hid, mods, ord(key)):
                 registered.append(hid)
             else:
-                log.warning("Ctrl+Alt+%s is already used by another program", key)
+                self.failed.append(f"Ctrl+Alt+{key}")
+        if self.failed:
+            log.warning("Already used by another program: %s", ", ".join(self.failed))
 
         msg = wintypes.MSG()
         try:

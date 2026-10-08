@@ -224,3 +224,12 @@ def test_shutdown_releases_hotkeys_and_display_before_the_port(webapp):
     webapp.server.stop = lambda: (order.append("server"), real_stop())
     webapp.shutdown()
     assert order == ["app", "server"]
+
+
+def test_display_state_reports_taken_hotkeys(webapp):
+    import types
+
+    assert body(call(webapp.server, "/api/display"))["hotkeysTaken"] == []
+    webapp.app.hotkeys = types.SimpleNamespace(failed=["Ctrl+Alt+P"], stop=lambda: None)
+    state = body(call(webapp.server, "/api/display"))
+    assert state["hotkeysTaken"] == ["Ctrl+Alt+P"] and "ocr" in state
