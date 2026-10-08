@@ -176,7 +176,7 @@ button, input, select { font: inherit; color: inherit; }
 .btn.good { color: var(--good); border-color: rgba(125, 196, 128, .35); background: var(--good-soft); }
 .btn.small { padding: 4px 9px; font-size: 12px; border-radius: 7px; }
 
-input[type="text"], input[type="number"], input[type="search"], select {
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], select {
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 9px; padding: 7px 10px; outline: 0; color: var(--text);
 }
 input:focus, select:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px var(--accent-soft); }
