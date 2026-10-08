@@ -1,4 +1,5 @@
 import json
+import threading
 
 from tarkov_display.adl import COLOR_TYPES, ColorRange, Display
 from tarkov_display.controller import DisplayController
@@ -148,6 +149,32 @@ def test_watcher_follows_game_focus(tmp_path):
     state["running"] = False
     w.tick()
     assert ctl.active is None and adl.values["saturation"] == 110
+
+
+def test_watcher_survives_driver_errors(tmp_path):
+    adl, gamma = FakeADL(), FakeGamma()
+    ctl = DisplayController(adl, gamma, tmp_path / "s.json")
+    cfg = Config()
+    cfg.poll_seconds = 0.01
+    calls = {"n": 0}
+    applied = threading.Event()
+    real_apply = ctl.apply
+
+    def flaky_apply(profile):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("driver reset")
+        real_apply(profile)
+        applied.set()
+
+    ctl.apply = flaky_apply
+    w = GameWatcher(ctl, cfg, probe=lambda: (True, True))
+    w.start()
+    try:
+        assert applied.wait(5), "the watcher stopped after the first error"
+    finally:
+        w.stop()
+    assert calls["n"] >= 2 and ctl.active is None  # stopping puts the desktop back
 
 
 def test_config_roundtrip(tmp_path):

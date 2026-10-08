@@ -58,11 +58,11 @@ class GameWatcher:
         return running and (focused or not self.config.foreground_only)
 
     def _scene_brightness(self) -> Optional[float]:
-        if self._sampler is None:
-            from .screen import ScreenSampler
-
-            self._sampler = ScreenSampler().scene_brightness
         try:
+            if self._sampler is None:
+                from .screen import ScreenSampler
+
+                self._sampler = ScreenSampler().scene_brightness
             return self._sampler()
         except Exception as exc:
             log.debug("screen sample failed: %s", exc)
@@ -112,14 +112,24 @@ class GameWatcher:
     def run(self) -> None:
         log.info("Watching for %s", ", ".join(self.config.process_names))
         last = time.monotonic()
+        error = None
         while not self._stop.is_set():
             now = time.monotonic()
-            self.tick(now - last)
+            try:
+                self.tick(now - last)
+                error = None
+            except Exception as exc:  # e.g. the graphics driver restarted: keep watching
+                if str(exc) != error:
+                    log.warning("Display update failed: %s", exc, exc_info=True)
+                error = str(exc)
             last = now
             fast = self.config.auto.enabled and self.controller.active is not None
             self._wake.wait(self.config.auto.sample_interval if fast else self.config.poll_seconds)
             self._wake.clear()
-        self.controller.restore()
+        try:
+            self.controller.restore()
+        except Exception as exc:
+            log.warning("Could not put the desktop display settings back: %s", exc)
         self._applied = None
 
     def start(self) -> None:
