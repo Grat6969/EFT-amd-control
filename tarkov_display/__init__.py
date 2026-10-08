@@ -1,3 +1,5 @@
-"""Tarkov Display: switch AMD display colour settings automatically for Escape from Tarkov."""
+"""Tarkov Companion: prices, quests, hideout, maps and more from tarkov.dev,
+plus automatic AMD display settings for Escape from Tarkov."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
+APP_NAME = "Tarkov Companion"

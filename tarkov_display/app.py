@@ -98,7 +98,7 @@ class App:
     def start(self) -> None:
         self.watcher.start()
         self.prices.start()
-        if self.config.hotkeys:
+        if self.config.hotkeys and sys.platform == "win32":
             from .hotkeys import Hotkeys
 
             self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause, self.toggle_auto, self.request_scan)

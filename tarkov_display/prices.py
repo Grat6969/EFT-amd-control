@@ -6,18 +6,15 @@ import json
 import logging
 import os
 import re
-import gzip
 import threading
 import time
-import urllib.error
-import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
-log = logging.getLogger(__name__)
+from .client import ApiError, TarkovClient, error_message  # noqa: F401  (re-exported)
 
-API_URL = "https://api.tarkov.dev/graphql"
+log = logging.getLogger(__name__)
 # tarkov.dev's plain item list. Everyone gets the same response, so it is
 # usually served from their cache, and it keeps working when their GraphQL
 # back end is down.
@@ -35,7 +32,7 @@ NEEDS_MAX_AGE = 6 * 3600  # quest/hideout requirements only change with game pat
 ITEMS_QUERY = """
 query Items {
   items(lang: en%(mode)s, limit: %(limit)d, offset: %(offset)d) {
-    id name shortName types width height basePrice
+    id name shortName types width height basePrice iconLink wikiLink
     avg24hPrice lastLowPrice low24hPrice changeLast48hPercent updated link
     sellFor { priceRUB vendor { name } }
   }
@@ -63,23 +60,6 @@ query Tasks {
 """
 
 
-class ApiError(RuntimeError):
-    pass
-
-
-def error_message(body: bytes, status: int, reason: str) -> str:
-    """Best explanation available from an error response."""
-    try:
-        errors = json.loads(body).get("errors") or []
-        messages = [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errors]
-        if messages:
-            return f"HTTP {status}: " + "; ".join(messages[:3])
-    except (ValueError, AttributeError):
-        pass
-    text = body.decode("utf-8", "replace").strip()
-    return f"HTTP {status} {reason}" + (f": {text[:300]}" if text else "")
-
-
 @dataclass
 class Item:
     id: str
@@ -99,6 +79,9 @@ class Item:
     quests: List[str] = field(default_factory=list)
     hideout: List[str] = field(default_factory=list)
     link: str = ""
+    icon: str = ""
+    wiki: str = ""
+    tags: List[str] = field(default_factory=list)
 
     @property
     def flea_price(self) -> Optional[int]:
@@ -160,6 +143,9 @@ def parse_graphql_items(raw_items: List[dict]) -> List[Item]:
                 best_trader=best_name,
                 best_trader_price=best_price,
                 link=raw.get("link") or "",
+                icon=raw.get("iconLink") or "",
+                wiki=raw.get("wikiLink") or "",
+                tags=list(types),
             )
         )
     return items
@@ -187,6 +173,11 @@ def parse_lite_items(raw_items: List[dict]) -> List[Item]:
         currency = CURRENCY_SYMBOLS.get(raw.get("traderPriceCur") or "")
         rate = rates.get(currency) if currency else None
         trader_rub = int(round((raw.get("traderPrice") or 0) * rate)) if rate else 0
+        # diff24h is the change over 48h in roubles; turn it into percent.
+        avg, diff = raw.get("avg24hPrice"), raw.get("diff24h")
+        change = None
+        if isinstance(diff, (int, float)) and avg and avg - diff > 0:
+            change = round(diff / (avg - diff) * 100, 2)
         items.append(
             Item(
                 id=raw["uid"],
@@ -194,6 +185,7 @@ def parse_lite_items(raw_items: List[dict]) -> List[Item]:
                 short_name=raw.get("shortName") or "",
                 avg24h=raw.get("avg24hPrice") or None,
                 last_low=raw.get("price") or None,
+                change48h=change,
                 base_price=raw.get("basePrice") or 0,
                 slots=raw.get("slots") or 1,
                 flea_banned="noFlea" in tags,
@@ -201,6 +193,9 @@ def parse_lite_items(raw_items: List[dict]) -> List[Item]:
                 best_trader=raw.get("traderName") if trader_rub else None,
                 best_trader_price=trader_rub,
                 link=raw.get("link") or "",
+                icon=raw.get("icon") or "",
+                wiki=raw.get("wikiLink") or "",
+                tags=list(tags),
             )
         )
     return items
@@ -246,6 +241,7 @@ class PriceDB:
     def __init__(self, cache_path: Optional[Path] = None, game_mode: str = "regular", max_age: float = 900):
         self.cache_path = cache_path
         self.game_mode = game_mode
+        self.client = TarkovClient(game_mode)
         self.max_age = max_age
         self.items: List[Item] = []
         self.updated: float = 0.0
@@ -294,35 +290,11 @@ class PriceDB:
             )
         os.replace(tmp, self.cache_path)
 
-    def _send(self, req: urllib.request.Request) -> bytes:
-        req.add_header("Accept", "application/json")
-        req.add_header("Accept-Encoding", "gzip")
-        req.add_header("User-Agent", "TarkovDisplay/0.4")
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                raw = resp.read()
-                encoding = resp.headers.get("Content-Encoding")
-        except urllib.error.HTTPError as exc:
-            raw = exc.read()
-            if exc.headers.get("Content-Encoding") == "gzip":
-                raw = gzip.decompress(raw)
-            raise ApiError(error_message(raw, exc.code, exc.reason)) from None
-        return gzip.decompress(raw) if encoding == "gzip" else raw
-
     def get_json(self, url: str):
-        return json.loads(self._send(urllib.request.Request(url)))
+        return self.client.get_json(url)
 
     def query(self, template: str, **params) -> dict:
-        mode = ", gameMode: pve" if self.game_mode == "pve" else ""
-        body = json.dumps({"query": template % dict(mode=mode, **params)}).encode()
-        req = urllib.request.Request(API_URL, data=body, headers={"Content-Type": "application/json"})
-        raw = self._send(req)
-        payload = json.loads(raw)
-        if payload.get("errors"):
-            log.debug("tarkov.dev reported: %s", payload["errors"])
-        if not payload.get("data"):
-            raise ApiError(error_message(raw, 200, "OK"))
-        return payload["data"]
+        return self.client.query(template, **params)
 
     def fetch_items_graphql(self) -> List[Item]:
         raw: List[dict] = []

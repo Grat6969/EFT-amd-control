@@ -16,10 +16,13 @@ log = logging.getLogger(__name__)
 
 
 def cmd_gui(args) -> int:
-    from .gui import main
+    from .webapp import main
 
-    main()
-    return 0
+    return main(
+        open_on_start=not getattr(args, "no_window", False),
+        restarted=getattr(args, "restarted", False),
+        port=getattr(args, "port", None),
+    )
 
 
 def cmd_watch(args) -> int:
@@ -175,12 +178,17 @@ def cmd_restore(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="tarkov-display",
-        description="Automatically switch AMD display colour settings while Escape from Tarkov is running.",
+        description="Tarkov Companion: tarkov.dev prices, quests, hideout and maps, plus automatic AMD "
+                    "display settings for Escape from Tarkov.",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("gui", help="open the settings window (default)").set_defaults(func=cmd_gui)
+    p = sub.add_parser("gui", help="open the app window (default)")
+    p.add_argument("--no-window", action="store_true", help="start without opening a window")
+    p.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--port", type=int, help="local port for the app window")
+    p.set_defaults(func=cmd_gui)
 
     p = sub.add_parser("watch", help="run in the console without a window")
     p.add_argument("--profile", help="profile to use")
@@ -215,7 +223,7 @@ def main(argv=None) -> int:
     )
 
     args = parser.parse_args(argv)
-    if sys.platform != "win32" and args.command not in ("list", "price"):
+    if sys.platform != "win32" and args.command not in (None, "gui", "list", "price"):
         print("tarkov-display controls Windows display drivers and only runs on Windows.")
         return 1
     setup_logging(args.verbose)

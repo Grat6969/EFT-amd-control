@@ -111,6 +111,9 @@ class Config:
     auto: AutoConfig = field(default_factory=AutoConfig)
     scan: ScanConfig = field(default_factory=ScanConfig)
     game_mode: str = "regular"  # or "pve" for PvE flea prices
+    keep_running: bool = False  # keep hotkeys/display running after the window closes
+    update_branch: str = ""     # GitHub branch to update from; "" = the default
+    port: int = 47821           # local port for the app window
 
     @property
     def profile(self) -> Profile:
@@ -130,6 +133,9 @@ class Config:
             "auto": asdict(self.auto),
             "scan": asdict(self.scan),
             "game_mode": self.game_mode,
+            "keep_running": self.keep_running,
+            "update_branch": self.update_branch,
+            "port": self.port,
         }
 
     @classmethod
@@ -137,7 +143,8 @@ class Config:
         cfg = cls()
         if isinstance(data.get("profiles"), dict) and data["profiles"]:
             cfg.profiles = {k: Profile.from_dict(v) for k, v in data["profiles"].items()}
-        for key in ("active_profile", "process_names", "foreground_only", "hotkeys", "poll_seconds"):
+        for key in ("active_profile", "process_names", "foreground_only", "hotkeys", "poll_seconds",
+                    "keep_running", "update_branch", "port"):
             if key in data:
                 setattr(cfg, key, data[key])
         if isinstance(data.get("auto"), dict):

@@ -1,227 +1,172 @@
-# Tarkov Display
+# Tarkov Companion
 
-Switches your AMD Radeon display settings automatically when you play
-**Escape from Tarkov**, then puts them back when you leave the game.
+An all-in-one helper for **Escape from Tarkov** on Windows:
 
-- **Saturation**: makes player kits stand out from grass, rocks and concrete.
-- **Brightness, contrast and gamma**: let you see into dark corners, interiors and night raids.
-- Settings go on while the Tarkov window is focused and come off when you alt-tab
-  or close the game, so your desktop, browser and videos look normal.
-- In-game hotkeys switch between profiles such as day, night and interiors.
-- **Auto-boost in dark areas** (optional): samples the screen at 5 spots and
-  raises gamma and brightness when you walk into a dark room, then lowers
-  them again outside.
-- **Flea market prices**: look up any item by name, or hover over an item in
-  game and press `Ctrl+Alt+P` to see its flea price, best trader, price per
-  slot, and whether it's needed for quests or the hideout.
+- **Everything from [tarkov.dev](https://tarkov.dev)** in one window: live flea and
+  trader prices, quests, hideout, barters, crafts, ammo, maps, bosses, traders,
+  achievements, server status and goon sightings.
+- **Your progress**: tick off quests and hideout levels and the app works out what's
+  available next and every item you still need (and what it costs to buy).
+- **In-game price check**: hover over an item and press `Ctrl+Alt+P`.
+- **Automatic AMD display settings** while Tarkov is focused (saturation, brightness,
+  contrast, gamma), with an optional boost when you walk into dark areas.
+- **One-click updates** from inside the app.
 
-The app changes the same **Display Color** settings found in AMD Software:
-Adrenalin Edition, through the AMD Display Library (`atiadlxx.dll`), which
-comes with every Radeon driver. Gamma goes through the standard Windows
-gamma ramp. It never touches the game process, its files or its memory, so
-it works like changing your monitor or driver settings by hand.
+It never touches the game's memory, files or process.
 
-## Requirements
+## Install
 
-- Windows 10 or 11
-- AMD Radeon GPU with the Adrenalin driver installed
-- Python 3.9+ from [python.org](https://www.python.org/downloads/) (tick "Add python to PATH")
-  or a pre-built `TarkovDisplay.exe` (see below)
+1. Install Python 3.9 or newer from [python.org](https://www.python.org/downloads/)
+   (tick "Add python to PATH").
+2. Download this repository as a ZIP and unzip it anywhere.
+3. Double-click `install.bat` once (installs Windows' text recognition for the price check).
+4. Double-click `run.bat`. The app opens in its own window.
 
-On NVIDIA or Intel GPUs it still runs but falls back to gamma only:
-brightness and contrast are emulated and saturation has no effect.
+The window is a local page shown by Microsoft Edge (which comes with Windows) in
+"app" mode, so it has no tabs or address bar. Closing it quits the app and puts
+your display settings back to normal, unless you turn on **Settings → Keep running
+after closing the window**. Running `run.bat` again while the app is open just
+opens another window.
 
-## Quick start
+## Updating
 
-1. Download or clone this repo.
-2. Double-click `install.bat` once. It installs the Windows text-recognition
-   packages used by the price check.
-3. Double-click `run.bat`. The settings window opens.
-4. Start Tarkov. When the game window is focused, the status line reads
-   `game active - profile 'balanced' applied`.
+- **In the app:** a gold "Update" button appears at the bottom of the sidebar when a
+  new version is out. Click it (or go to **Settings → Updates**), then **Update &
+  restart**: the app downloads the new version, installs it and restarts itself.
+- **Without the app:** close it and double-click `update.bat`.
 
-Leave the window open while you play (minimised is fine). Closing it restores
-your normal settings.
+Updates replace the app's code only. Your settings, display profiles and progress are
+stored in `%APPDATA%\TarkovDisplay` and are kept.
 
-### Updating
+## What's in it
 
-Close the app, then double-click `update.bat`. It downloads the latest
-version from GitHub and replaces the code in this folder. Your profiles and
-settings are kept, because they are stored separately in
-`%APPDATA%\TarkovDisplay`. Any other files you put in this folder are left
-alone too.
+| Page | What you get |
+|------|--------------|
+| **Home** | Game server status, trader restock timers, where the Goons were last seen, wipe day, your progress, best value per slot |
+| **Prices** | Every item with flea average, lowest listing, 48h change, best trader, price per slot, and whether your open quests or hideout need it. Click any item for details |
+| **Item details** | All sell and buy offers (trader levels, limits, quest locks), 7-day price chart, flea fee calculator, where it's needed, barters and crafts that make or use it |
+| **Barters** | Every trader barter with cost, value and profit at today's prices |
+| **Crafts** | Hideout crafts ranked by profit per hour; filter to stations you've built |
+| **Ammo** | Damage vs penetration chart per caliber, full stats, a rough armor-class guide, prices |
+| **Quests** | All quests with objectives, rewards and prerequisites. Filter by available / locked / done, trader, map, Kappa or Lightkeeper. Marking a quest done also marks every quest before it (with Undo) |
+| **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
+| **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
+| **Achievements** | All achievements with rarity and how many players have them; tick off yours |
+| **Maps** | Zoomable 2D/3D map images, bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
+| **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
+| **Traders** | Restock countdowns, loyalty level requirements, everything each trader sells |
+| **Display** | Display profiles, auto-boost and price-check settings |
+| **Settings** | PvP / PvE, your level and faction, flea fee settings, data refresh, updates, backup and restore |
 
-### Recommended one-time setup
+Progress is saved on your PC, separately for PvP and PvE. **Settings → Backup** exports
+it to a file.
 
-Windows limits how far gamma can move. To allow the full range, double-click
-`enable_full_gamma_range.reg`, accept the prompt and reboot. If you skip this,
-higher gamma values (around 1.3 and up) may be refused; the log will say so.
+## Price check in game: Ctrl+Alt+P
 
-Also in Adrenalin, turn **off** *Vari-Bright* and *Radeon Image Sharpening
-(optional)* if they fight with your settings, and make sure no Adrenalin
-game profile for Tarkov overrides Display Color.
+Hover over an item in your stash or a container until Tarkov shows its name, then
+press `Ctrl+Alt+P`. A small popup next to the mouse shows the flea price, best trader,
+price per slot, where to sell it, and which of **your unfinished** quests or hideout
+upgrades still need it. The popup never takes focus from the game.
 
-## Profiles
+It takes one screenshot around the mouse only when you press the hotkey, reads the
+name with Windows' built-in text recognition and looks it up in the price list. Run
+Tarkov in **Borderless** window mode; exclusive fullscreen hides the popup and gives
+black screenshots.
 
-| Profile     | Brightness | Contrast | Saturation | Gamma | Use for |
-|-------------|-----------:|---------:|-----------:|------:|---------|
-| `balanced`  | 10 | 110 | 135 | 1.15 | Default, most maps |
-| `day`       | 5  | 112 | 140 | 1.05 | Bright daytime: Woods, Shoreline, Lighthouse |
-| `interiors` | 15 | 115 | 135 | 1.30 | Labs, Interchange, Reserve bunkers, Factory |
-| `night`     | 25 | 105 | 125 | 1.50 | Night raids |
+If it misreads items, turn on **Display → Price check → Save each capture** (captures
+go to `%APPDATA%\TarkovDisplay\scans`) or run `python -m tarkov_display scan --debug`.
+The capture area can be adjusted in `config.json` under `"scan"`.
 
-Brightness, contrast and saturation use Adrenalin's units: brightness runs
--100 to 100 with a default of 0, and contrast and saturation run 0 to 200
-with a default of 100. Gamma 1.0 is normal, and higher values brighten
-shadows.
+## Display settings
 
-Tune any profile with the sliders, or tick **Preview on desktop now** to see
-changes without the game running. **New** copies the current profile under a
-new name.
+While the Tarkov window is focused, the app applies a display profile through your
+AMD driver (the same Display Color settings as AMD Software: Adrenalin Edition) and
+the Windows gamma ramp, and puts your normal settings back when you alt-tab or quit.
 
-Profiles are saved to `%APPDATA%\TarkovDisplay\config.json`, which you can
-also edit by hand. In that file, `"hue"` and `"temperature"` (Kelvin) can be
-set to a number, or to `null` to keep the driver default.
+| Profile | Brightness | Contrast | Saturation | Gamma | For |
+|---------|-----------:|---------:|-----------:|------:|-----|
+| balanced | 10 | 110 | 135 | 1.15 | most maps |
+| day | 5 | 112 | 140 | 1.05 | bright daytime maps |
+| interiors | 15 | 115 | 135 | 1.30 | Labs, Interchange, Reserve bunkers, Factory |
+| night | 25 | 105 | 125 | 1.50 | night raids |
 
-## Auto-boost in dark areas
+Adjust them on the **Display** page; **Preview on the desktop now** shows changes
+without the game running.
 
-Tick **Auto-boost in dark areas** in the settings window, or press
-`Ctrl+Alt+A` in game.
+**Auto-boost in dark areas** (off by default) reads 5 small patches of the game window
+4 times a second and eases in extra gamma and brightness when the scene is dark. Use
+**Borderless** window mode in Tarkov; in exclusive fullscreen Windows returns black
+screenshots. Note: like any screen-reading tool, use it at your own risk with BattlEye.
 
-Four times a second it reads 5 small patches of the Tarkov window: the
-centre, plus upper-left, upper-right, lower-left and lower-right of centre.
-It averages each patch, then averages the five into a single scene
-brightness:
+Windows limits how far gamma can move. If high gamma values are refused, double-click
+`enable_full_gamma_range.reg` once and reboot. If the screen ever looks wrong:
+AMD Software → Display → Display Color → Reset.
 
-- Below **"Counts as fully dark"** (8% by default), the full boost is added
-  on top of your current profile: +0.40 gamma and +15 brightness.
-- Above **"Counts as bright"** (30%), there is no boost.
-- In between, the boost scales smoothly.
+On NVIDIA or Intel GPUs the display part falls back to gamma only (brightness and
+contrast emulated, no saturation). Everything else works on any PC.
 
-Changes are eased in over the **Reaction time** (1.5 s), so a muzzle flash,
-flashlight or a glance at the sky doesn't make the screen pump. A pure black
-frame, such as a loading screen, holds the current boost instead of maxing
-it out. The screen capture sees the game's own image, before your boost is
-applied, so the boost doesn't feed back into the reading.
-
-The settings window shows the live scene brightness and boost next to the
-checkbox. To check what it sees, run `python -m tarkov_display scene` and
-alt-tab into the game. It prints the 5 readings and their average.
-
-**Run Tarkov in Borderless (windowed) mode.** In exclusive Fullscreen,
-Windows usually returns black screenshots, so auto-boost will stay where it
-is.
-
-Note: auto-boost reads the screen (like OBS or Discord screen share) and
-changes display settings in response. It never touches the game itself, but
-as with any screen-reading tool you use it at your own risk with BattlEye.
-Everything else in this app only changes driver and display settings.
-
-## Flea market prices
-
-Prices come from [tarkov.dev](https://tarkov.dev), a free community API, and
-update every 15 minutes while the app is open. A copy is saved, so the last
-prices still work offline. They are shown before flea market fees.
-
-The app downloads tarkov.dev's plain item list, which is usually served from
-their cache and keeps working when their main GraphQL server is busy. If
-that list fails, it falls back to GraphQL in small batches. Quest and hideout
-requirements are downloaded separately, every 6 hours. If that part fails,
-prices still work, and the last requirements it downloaded are kept. PvE
-always uses GraphQL, because the plain list only has PvP prices.
-
-If the Prices tab shows "Couldn't download prices", tarkov.dev itself is
-having trouble. The app keeps retrying every minute in the background.
-
-### Prices tab
-
-Type part of a name, such as `ledx`, `gpu` or `salewa`. Each row shows:
-
-- the flea price (24-hour average) and the lowest listing right now
-- the best trader to sell to, and what they pay
-- the price per inventory slot
-- what hideout upgrades and quests it's needed for
-
-Click a column heading to sort by it, and double-click a row to open the
-item on tarkov.dev.
-
-### Price check in game: Ctrl+Alt+P
-
-Hover over an item in your stash or a container until Tarkov shows its name,
-then press `Ctrl+Alt+P`. A small popup appears next to the cursor with the
-prices. It doesn't take focus, so the game keeps your mouse and keyboard, and
-it closes by itself after 8 seconds.
-
-How it works: when you press the hotkey (and only then), it takes one
-screenshot of the area around the cursor. Windows' built-in OCR reads the
-text in it, and the result is matched against the tarkov.dev item list. The
-match allows for small misreads and short names. Nothing touches the game's
-memory, files or process. The popup is a normal window of this app, not
-drawn into the game.
-
-If it misreads items:
-
-- Run `python -m tarkov_display scan --debug`, hover over items in game and
-  watch what it reads. Each capture is saved as an image plus text in
-  `%APPDATA%\TarkovDisplay\scans`, so you can see exactly what it saw.
-- Adjust the capture area around the cursor in `config.json` under `"scan"`
-  (`left`, `right`, `up`, `down`, in pixels at 1080p).
-- Windows OCR needs the English language installed (Settings → Time &
-  language → Language). If the winrt packages won't install, installing
-  [Tesseract](https://github.com/UB-Mannheim/tesseract/wiki) works as a
-  fallback.
-
-For PvE flea prices, set `"game_mode": "pve"` in `config.json`.
-
-## Hotkeys (work in game)
+## Hotkeys (while Tarkov is focused)
 
 | Keys | Action |
 |------|--------|
-| `Ctrl+Alt+1` … `Ctrl+Alt+9` | Switch to profile 1–9 (order shown in the dropdown) |
-| `Ctrl+Alt+0` | Turn the overlay off or on |
-| `Ctrl+Alt+A` | Turn auto-boost in dark areas off or on |
+| `Ctrl+Alt+1` … `9` | Switch display profile |
+| `Ctrl+Alt+0` | Turn display changes off / on |
+| `Ctrl+Alt+A` | Turn auto-boost off / on |
 | `Ctrl+Alt+P` | Price-check the item under the mouse |
 
-With the built-in profiles: `1` = balanced, `2` = day, `3` = interiors, `4` = night.
+## Where the data comes from
+
+- **[tarkov.dev](https://tarkov.dev)**: a free, open-source community API built from the
+  game's own data, live flea market scans, and the official
+  [server status page](https://status.escapefromtarkov.com/). Prices refresh every
+  15 minutes; quests, hideout and the rest every few hours. Everything is cached, so
+  the app still works offline with the last data it downloaded.
+- **tarkov.dev's website data on GitHub**: which map images exist (and who made them)
+  and wipe dates.
+- **Map images** are made by the community artists credited on each map.
+- The flea fee formula is from tarkov.dev (MIT licence), which follows the game wiki.
+
+Other price sites (such as tarkov-market) need a paid API key, and scraping websites
+breaks whenever they change, so they aren't used.
+
+If a page says "Couldn't load this from tarkov.dev", their server is busy; the app keeps
+the last data it had and retries on its own. **Settings → Data from tarkov.dev** shows
+when each part was last updated and has refresh buttons.
+
+## Safety and privacy
+
+- The app's window is served from your own PC (127.0.0.1) and only that window can use
+  it: every request needs a random key created at start-up.
+- It only talks to tarkov.dev, GitHub (for updates and map/wipe data) and the image
+  hosts used by tarkov.dev.
+- It never reads or changes the game's memory, files or process.
 
 ## Command line
 
 ```
-python -m tarkov_display              # settings window (default)
-python -m tarkov_display watch        # no window, just run in the console
-python -m tarkov_display watch --profile night --always
-python -m tarkov_display displays     # show detected AMD displays and current values
-python -m tarkov_display scene        # live auto-boost readings from the 5 sample spots
-python -m tarkov_display price ledx   # flea/trader prices by name
-python -m tarkov_display scan --debug # price-check under the mouse every 3 s (for testing)
-python -m tarkov_display list         # list profiles
-python -m tarkov_display apply day    # apply now and leave it on
+python -m tarkov_display              # open the app (same as run.bat)
+python -m tarkov_display watch        # display control + hotkeys only, in a console
+python -m tarkov_display price ledx   # look up prices by name
+python -m tarkov_display scan --debug # price-check under the mouse every 3 s (testing)
+python -m tarkov_display scene        # live auto-boost readings
+python -m tarkov_display displays     # show detected AMD displays
+python -m tarkov_display apply night  # apply a profile now and leave it on
 python -m tarkov_display restore      # undo 'apply'
 ```
 
-`--always` keeps the profile on whenever the game is running, even when
-alt-tabbed.
+## Standalone .exe
 
-## Building a standalone .exe
-
-Run `build_exe.bat`. It installs PyInstaller and the OCR packages, and writes
-`dist\TarkovDisplay.exe`, which you can pin to the taskbar or add to
-startup with `Win+R` → `shell:startup`.
-
-## Safety
-
-- Before the first change, your current settings are saved to
-  `%APPDATA%\TarkovDisplay\original_settings.json`. If the app crashes or the
-  PC loses power while a profile is on, they are restored the next time you
-  start the app (or run `python -m tarkov_display restore`).
-- If something looks wrong, open Adrenalin → Display → Display Color → Reset.
-- Log file: `%APPDATA%\TarkovDisplay\tarkov_display.log`.
+`build_exe.bat` builds `dist\TarkovCompanion.exe`. The .exe can't update itself; rebuild
+it after updating the code.
 
 ## Development
 
 ```
 pip install pytest
 python -m pytest
+python -m tests.demo        # run the app with made-up data on http://127.0.0.1:47999/
 ```
 
-The tests use fake driver backends, so they run on any OS.
+The tests use fake tarkov.dev responses, so they run on any OS without internet. Set
+`TARKOV_SCHEMA` to tarkov-api's `schema-static.mjs` to also check every query against
+tarkov.dev's schema.
