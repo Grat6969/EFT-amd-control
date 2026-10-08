@@ -151,3 +151,58 @@ def test_describe():
     assert any(l.startswith("Hideout: Medstation 3") for l in lines)
     assert "can't be sold" in describe(by_id(d.items, "labskey"))[1]
     assert rub(1234567) == "1 234 567 ₽" and rub(None) == "-"
+
+
+class FakeResponse:
+    def __init__(self, body, headers=None):
+        self.body = body
+        self.headers = headers or {}
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+def test_http_error_shows_server_message(monkeypatch):
+    import io
+    import json
+    import urllib.error
+    import urllib.request
+
+    from tarkov_display import prices as mod
+
+    sent = []
+
+    def fake_urlopen(req, timeout):
+        sent.append(req)
+        body = json.dumps({"errors": [{"message": 'Cannot query field "foo" on type "Item".'}]}).encode()
+        raise urllib.error.HTTPError(req.full_url, 422, "Unprocessable Entity", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    d = PriceDB()
+    assert d.refresh() is False
+    assert "422" in d.error and 'Cannot query field "foo"' in d.error
+    assert sent[0].get_header("Accept") == "application/json"
+    assert mod.error_message(b"", 500, "Server Error") == "HTTP 500 Server Error"
+
+
+def test_prices_load_even_if_hideout_query_fails(monkeypatch):
+    import json
+    import urllib.request
+
+    def fake_urlopen(req, timeout):
+        query = json.loads(req.data)["query"]
+        if "hideoutStations" in query:
+            return FakeResponse(json.dumps({"errors": ["GraphQL server unavailable."]}).encode())
+        return FakeResponse(json.dumps({"data": {"items": API_DATA["items"]}}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    d = PriceDB()
+    assert d.refresh() is True and d.error is None
+    ledx = by_id(d.items, "ledx")
+    assert ledx.flea_price == 1_050_000 and ledx.hideout == []

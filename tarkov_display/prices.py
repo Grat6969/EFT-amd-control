@@ -6,8 +6,10 @@ import json
 import logging
 import os
 import re
+import gzip
 import threading
 import time
+import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,20 +20,43 @@ log = logging.getLogger(__name__)
 API_URL = "https://api.tarkov.dev/graphql"
 FLEA = "Flea Market"
 
-QUERY = """
-query Prices {
+ITEMS_QUERY = """
+query Items {
   items(lang: en%(mode)s) {
     id name shortName types width height basePrice
     avg24hPrice lastLowPrice low24hPrice changeLast48hPercent updated link
     sellFor { priceRUB vendor { name } }
     usedInTasks { name }
   }
-  hideoutStations(lang: en) {
+}
+"""
+
+# Fetched separately: if it fails, prices still work, just without hideout info.
+HIDEOUT_QUERY = """
+query Hideout {
+  hideoutStations(lang: en%(mode)s) {
     name
     levels { level itemRequirements { count item { id } } }
   }
 }
 """
+
+
+class ApiError(RuntimeError):
+    pass
+
+
+def error_message(body: bytes, status: int, reason: str) -> str:
+    """Best explanation available from an error response."""
+    try:
+        errors = json.loads(body).get("errors") or []
+        messages = [e.get("message", str(e)) if isinstance(e, dict) else str(e) for e in errors]
+        if messages:
+            return f"HTTP {status}: " + "; ".join(messages[:3])
+    except (ValueError, AttributeError):
+        pass
+    text = body.decode("utf-8", "replace").strip()
+    return f"HTTP {status} {reason}" + (f": {text[:300]}" if text else "")
 
 
 @dataclass
@@ -185,19 +210,45 @@ class PriceDB:
             )
         os.replace(tmp, self.cache_path)
 
-    def fetch(self) -> dict:
+    def query(self, template: str) -> dict:
         mode = ", gameMode: pve" if self.game_mode == "pve" else ""
-        body = json.dumps({"query": QUERY % {"mode": mode}}).encode()
+        body = json.dumps({"query": template % {"mode": mode}}).encode()
         req = urllib.request.Request(
             API_URL,
             data=body,
-            headers={"Content-Type": "application/json", "User-Agent": "TarkovDisplay/0.2"},
+            headers={
+                "Content-Type": "application/json",
+                # Plain JSON: errors come back in the body with HTTP 200
+                # instead of a bare 4xx status.
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+                "User-Agent": "TarkovDisplay/0.3",
+            },
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            payload = json.load(resp)
-        if payload.get("errors") and not payload.get("data"):
-            raise RuntimeError(payload["errors"][0].get("message", "API error"))
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read()
+                if resp.headers.get("Content-Encoding") == "gzip":
+                    raw = gzip.decompress(raw)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            if exc.headers.get("Content-Encoding") == "gzip":
+                raw = gzip.decompress(raw)
+            raise ApiError(error_message(raw, exc.code, exc.reason)) from None
+        payload = json.loads(raw)
+        if payload.get("errors"):
+            log.debug("tarkov.dev reported: %s", payload["errors"])
+        if not payload.get("data"):
+            raise ApiError(error_message(raw, 200, "OK"))
         return payload["data"]
+
+    def fetch(self) -> dict:
+        data = {"items": self.query(ITEMS_QUERY).get("items") or []}
+        try:
+            data["hideoutStations"] = self.query(HIDEOUT_QUERY).get("hideoutStations") or []
+        except Exception as exc:
+            log.warning("Hideout requirements unavailable: %s", exc)
+        return data
 
     def refresh(self) -> bool:
         with self._lock:
