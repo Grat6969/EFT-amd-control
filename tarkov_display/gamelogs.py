@@ -409,8 +409,18 @@ def scan_history(folder: Path) -> dict:
     return result
 
 
+def custom_folder(custom: str) -> Path:
+    return Path(os.path.expandvars(custom.strip())).expanduser()
+
+
 def default_folder(custom: str = "") -> Optional[Path]:
+    """The Logs folder: the one set in the app, else found automatically.
+    The game's install folder or a single session folder work too."""
     if custom:
-        path = Path(os.path.expandvars(custom)).expanduser()
-        return path if path.is_dir() else None
+        path = custom_folder(custom)
+        if not path.is_dir():
+            return None
+        if session_time(path):  # one session: its parent holds them all
+            return path.parent
+        return logs_folder_in(path) or path
     return find_logs_folder()

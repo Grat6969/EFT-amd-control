@@ -191,4 +191,10 @@ def test_logs_folder_locations(tmp_path):
     (tmp_path / "Logs").mkdir()
     assert logs_folder_in(tmp_path) == tmp_path / "Logs"
     assert gamelogs.default_folder(str(tmp_path / "Logs")) == tmp_path / "Logs"
+    # The install folder or one session folder pasted instead of Logs also work.
+    assert gamelogs.default_folder(str(tmp_path)) == tmp_path / "Logs"
+    session = tmp_path / "Logs" / "log_2025.11.20_9-05-00_1.0.0.1"
+    session.mkdir()
+    assert gamelogs.default_folder(f"  {session}  ") == tmp_path / "Logs"
+    assert gamelogs.default_folder(str(tmp_path / "missing")) is None
     assert gamelogs.default_folder(str(tmp_path / "missing")) is None

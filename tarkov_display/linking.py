@@ -135,7 +135,7 @@ class GameLink:
         restart = False
         if "path" in body:
             path = str(body["path"] or "").strip()
-            if path and not Path(path).expanduser().is_dir():
+            if path and not gamelogs.custom_folder(path).is_dir():
                 raise ValueError("That folder doesn't exist.")
             logs.path, restart = path, True
         if "enabled" in body:
