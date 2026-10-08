@@ -27,7 +27,8 @@ export default {
       }
     }
     // Real bosses first: anything that spawns somewhere, by highest chance.
-    const sorted = [...bosses].sort((a, b) => (where.has(b.id) - where.has(a.id)) || a.name.localeCompare(b.name));
+    const best = (id) => Math.max(0, ...(where.get(id) || []).map((s) => s.chance || 0));
+    const sorted = [...bosses].sort((a, b) => (where.has(b.id) - where.has(a.id)) || best(b.id) - best(a.id) || a.name.localeCompare(b.name));
     const grid = h("div.grid.cols-2");
     const draw = () => {
       const list = sorted.filter((b) => !state.q || b.name.toLowerCase().includes(state.q.toLowerCase()));

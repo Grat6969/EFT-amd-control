@@ -432,8 +432,9 @@ class DataStore:
             return cached[1]
         data = self.client.query(ITEM_QUERY, variables={"id": item_id})
         result = {"item": data.get("item"), "history": data.get("history") or []}
-        self._items[item_id] = (time.time(), result)
-        if len(self._items) > 200:
-            oldest = min(self._items, key=lambda k: self._items[k][0])
-            self._items.pop(oldest, None)
+        with self._lock:  # requests come in on several threads
+            self._items[item_id] = (time.time(), result)
+            if len(self._items) > 200:
+                oldest = min(self._items, key=lambda k: self._items[k][0])
+                self._items.pop(oldest, None)
         return result
