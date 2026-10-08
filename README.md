@@ -120,8 +120,18 @@ Everything else in this app only changes driver and display settings.
 ## Flea market prices
 
 Prices come from [tarkov.dev](https://tarkov.dev), a free community API, and
-update every 10 minutes while the app is open. A copy is saved, so the last
+update every 15 minutes while the app is open. A copy is saved, so the last
 prices still work offline. They are shown before flea market fees.
+
+The app downloads tarkov.dev's plain item list, which is usually served from
+their cache and keeps working when their main GraphQL server is busy. If
+that list fails, it falls back to GraphQL in small batches. Quest and hideout
+requirements are downloaded separately, every 6 hours. If that part fails,
+prices still work, and the last requirements it downloaded are kept. PvE
+always uses GraphQL, because the plain list only has PvP prices.
+
+If the Prices tab shows "Couldn't download prices", tarkov.dev itself is
+having trouble. The app keeps retrying every minute in the background.
 
 ### Prices tab
 

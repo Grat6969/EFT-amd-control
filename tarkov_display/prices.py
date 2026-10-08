@@ -18,25 +18,46 @@ from typing import Dict, List, Optional
 log = logging.getLogger(__name__)
 
 API_URL = "https://api.tarkov.dev/graphql"
+# tarkov.dev's plain item list. Everyone gets the same response, so it is
+# usually served from their cache, and it keeps working when their GraphQL
+# back end is down.
+LITE_ITEMS_URL = "https://api.tarkov.dev/api/v1/items"
 FLEA = "Flea Market"
+USD_ID = "5696686a4bdc2da3298b456a"
+EUR_ID = "569668774bdc2da2298b4568"
+CURRENCY_SYMBOLS = {"\u20bd": "RUB", "$": "USD", "\u20ac": "EUR"}
+PAGE_SIZE = 500
+MAX_PAGES = 40
+NEEDS_MAX_AGE = 6 * 3600  # quest/hideout requirements only change with game patches
 
+# Used for PvE, and for PvP if the item list fails. Paged so no single
+# request comes near tarkov.dev's 20 second limit.
 ITEMS_QUERY = """
 query Items {
-  items(lang: en%(mode)s) {
+  items(lang: en%(mode)s, limit: %(limit)d, offset: %(offset)d) {
     id name shortName types width height basePrice
     avg24hPrice lastLowPrice low24hPrice changeLast48hPercent updated link
     sellFor { priceRUB vendor { name } }
-    usedInTasks { name }
   }
 }
 """
 
-# Fetched separately: if it fails, prices still work, just without hideout info.
 HIDEOUT_QUERY = """
 query Hideout {
   hideoutStations(lang: en%(mode)s) {
     name
     levels { level itemRequirements { count item { id } } }
+  }
+}
+"""
+
+TASKS_QUERY = """
+query Tasks {
+  tasks(lang: en%(mode)s) {
+    name
+    objectives {
+      ... on TaskObjectiveItem { count foundInRaid items { id } }
+    }
   }
 }
 """
@@ -69,19 +90,15 @@ class Item:
     low24h: Optional[int] = None
     change48h: Optional[float] = None
     base_price: int = 0
-    width: int = 1
-    height: int = 1
+    slots: int = 1
+    size: str = ""  # e.g. "2x1", when known
     flea_banned: bool = False
     is_preset: bool = False
     best_trader: Optional[str] = None
-    best_trader_price: int = 0
+    best_trader_price: int = 0  # roubles
     quests: List[str] = field(default_factory=list)
     hideout: List[str] = field(default_factory=list)
     link: str = ""
-
-    @property
-    def slots(self) -> int:
-        return max(1, self.width * self.height)
 
     @property
     def flea_price(self) -> Optional[int]:
@@ -102,7 +119,7 @@ class Item:
 
     @property
     def per_slot(self) -> int:
-        return self.best_value // self.slots
+        return self.best_value // max(1, self.slots)
 
     @property
     def needed_for(self) -> str:
@@ -114,20 +131,10 @@ class Item:
         return " | ".join(parts)
 
 
-def parse_items(data: dict) -> List[Item]:
-    """Turn a tarkov.dev GraphQL response into Item objects."""
-    hideout: Dict[str, List[str]] = {}
-    for station in data.get("hideoutStations") or []:
-        for level in station.get("levels") or []:
-            for req in level.get("itemRequirements") or []:
-                item = req.get("item") or {}
-                if item.get("id"):
-                    hideout.setdefault(item["id"], []).append(
-                        f"{station['name']} {level['level']} (x{req.get('count', 1)})"
-                    )
-
+def parse_graphql_items(raw_items: List[dict]) -> List[Item]:
+    """Items from the GraphQL ``items`` query."""
     items = []
-    for raw in data.get("items") or []:
+    for raw in raw_items:
         types = raw.get("types") or []
         best_name, best_price = None, 0
         for offer in raw.get("sellFor") or []:
@@ -135,6 +142,7 @@ def parse_items(data: dict) -> List[Item]:
             price = offer.get("priceRUB") or 0
             if vendor and vendor != FLEA and price > best_price:
                 best_name, best_price = vendor, price
+        width, height = raw.get("width") or 1, raw.get("height") or 1
         items.append(
             Item(
                 id=raw["id"],
@@ -145,18 +153,87 @@ def parse_items(data: dict) -> List[Item]:
                 low24h=raw.get("low24hPrice") or None,
                 change48h=raw.get("changeLast48hPercent"),
                 base_price=raw.get("basePrice") or 0,
-                width=raw.get("width") or 1,
-                height=raw.get("height") or 1,
+                slots=width * height,
+                size=f"{width}x{height}",
                 flea_banned="noFlea" in types,
                 is_preset="preset" in types,
                 best_trader=best_name,
                 best_trader_price=best_price,
-                quests=sorted({t["name"] for t in raw.get("usedInTasks") or [] if t and t.get("name")}),
-                hideout=hideout.get(raw["id"], []),
                 link=raw.get("link") or "",
             )
         )
     return items
+
+
+def parse_lite_items(raw_items: List[dict]) -> List[Item]:
+    """Items from the plain ``/api/v1/items`` list.
+
+    It gives the best trader's price in that trader's own currency, so
+    dollar and euro prices are converted with the Dollars and Euros items'
+    handbook value, the same rate tarkov.dev uses for its rouble prices.
+    """
+    rates = {"RUB": 1}
+    for raw in raw_items:
+        if raw.get("uid") == USD_ID and raw.get("basePrice"):
+            rates["USD"] = raw["basePrice"]
+        elif raw.get("uid") == EUR_ID and raw.get("basePrice"):
+            rates["EUR"] = raw["basePrice"]
+
+    items = []
+    for raw in raw_items:
+        if not raw.get("uid"):
+            continue
+        tags = raw.get("tags") or []
+        currency = CURRENCY_SYMBOLS.get(raw.get("traderPriceCur") or "")
+        rate = rates.get(currency) if currency else None
+        trader_rub = int(round((raw.get("traderPrice") or 0) * rate)) if rate else 0
+        items.append(
+            Item(
+                id=raw["uid"],
+                name=raw.get("name") or "",
+                short_name=raw.get("shortName") or "",
+                avg24h=raw.get("avg24hPrice") or None,
+                last_low=raw.get("price") or None,
+                base_price=raw.get("basePrice") or 0,
+                slots=raw.get("slots") or 1,
+                flea_banned="noFlea" in tags,
+                is_preset="preset" in tags,
+                best_trader=raw.get("traderName") if trader_rub else None,
+                best_trader_price=trader_rub,
+                link=raw.get("link") or "",
+            )
+        )
+    return items
+
+
+def parse_hideout(stations: List[dict]) -> Dict[str, List[str]]:
+    needs: Dict[str, List[str]] = {}
+    for station in stations:
+        for level in station.get("levels") or []:
+            for req in level.get("itemRequirements") or []:
+                item = (req or {}).get("item") or {}
+                if item.get("id"):
+                    needs.setdefault(item["id"], []).append(
+                        f"{station['name']} {level['level']} x{req.get('count', 1)}"
+                    )
+    return needs
+
+
+def parse_tasks(tasks: List[dict]) -> Dict[str, List[str]]:
+    """Quests that need each item: "Quest name x2 FiR"."""
+    per_item: Dict[str, Dict[str, list]] = {}
+    for task in tasks:
+        for objective in task.get("objectives") or []:
+            for item in (objective or {}).get("items") or []:
+                if not item or not item.get("id"):
+                    continue
+                entry = per_item.setdefault(item["id"], {}).setdefault(task["name"], [0, False])
+                entry[0] = max(entry[0], objective.get("count") or 1)
+                entry[1] = entry[1] or bool(objective.get("foundInRaid"))
+    return {
+        item_id: [f"{name} x{count}" + (" FiR" if fir else "") for name, (count, fir) in sorted(quests.items())]
+        for item_id, quests in per_item.items()
+    }
 
 
 def normalize(text: str) -> str:
@@ -166,12 +243,13 @@ def normalize(text: str) -> str:
 class PriceDB:
     """Holds the item list, cached on disk and refreshed in the background."""
 
-    def __init__(self, cache_path: Optional[Path] = None, game_mode: str = "regular", max_age: float = 600):
+    def __init__(self, cache_path: Optional[Path] = None, game_mode: str = "regular", max_age: float = 900):
         self.cache_path = cache_path
         self.game_mode = game_mode
         self.max_age = max_age
         self.items: List[Item] = []
         self.updated: float = 0.0
+        self.needs_updated: float = 0.0
         self.error: Optional[str] = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -195,6 +273,7 @@ class PriceDB:
             if data.get("game_mode", "regular") != self.game_mode:
                 return
             self.set_items([Item(**i) for i in data["items"]], data["updated"])
+            self.needs_updated = data.get("needs_updated", 0.0)
         except (OSError, ValueError, KeyError, TypeError) as exc:
             log.warning("Ignoring price cache: %s", exc)
 
@@ -205,36 +284,39 @@ class PriceDB:
         tmp = self.cache_path.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(
-                {"updated": self.updated, "game_mode": self.game_mode, "items": [asdict(i) for i in self.items]},
+                {
+                    "updated": self.updated,
+                    "needs_updated": self.needs_updated,
+                    "game_mode": self.game_mode,
+                    "items": [asdict(i) for i in self.items],
+                },
                 fh,
             )
         os.replace(tmp, self.cache_path)
 
-    def query(self, template: str) -> dict:
-        mode = ", gameMode: pve" if self.game_mode == "pve" else ""
-        body = json.dumps({"query": template % {"mode": mode}}).encode()
-        req = urllib.request.Request(
-            API_URL,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                # Plain JSON: errors come back in the body with HTTP 200
-                # instead of a bare 4xx status.
-                "Accept": "application/json",
-                "Accept-Encoding": "gzip",
-                "User-Agent": "TarkovDisplay/0.3",
-            },
-        )
+    def _send(self, req: urllib.request.Request) -> bytes:
+        req.add_header("Accept", "application/json")
+        req.add_header("Accept-Encoding", "gzip")
+        req.add_header("User-Agent", "TarkovDisplay/0.4")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 raw = resp.read()
-                if resp.headers.get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
+                encoding = resp.headers.get("Content-Encoding")
         except urllib.error.HTTPError as exc:
             raw = exc.read()
             if exc.headers.get("Content-Encoding") == "gzip":
                 raw = gzip.decompress(raw)
             raise ApiError(error_message(raw, exc.code, exc.reason)) from None
+        return gzip.decompress(raw) if encoding == "gzip" else raw
+
+    def get_json(self, url: str):
+        return json.loads(self._send(urllib.request.Request(url)))
+
+    def query(self, template: str, **params) -> dict:
+        mode = ", gameMode: pve" if self.game_mode == "pve" else ""
+        body = json.dumps({"query": template % dict(mode=mode, **params)}).encode()
+        req = urllib.request.Request(API_URL, data=body, headers={"Content-Type": "application/json"})
+        raw = self._send(req)
         payload = json.loads(raw)
         if payload.get("errors"):
             log.debug("tarkov.dev reported: %s", payload["errors"])
@@ -242,22 +324,67 @@ class PriceDB:
             raise ApiError(error_message(raw, 200, "OK"))
         return payload["data"]
 
-    def fetch(self) -> dict:
-        data = {"items": self.query(ITEMS_QUERY).get("items") or []}
+    def fetch_items_graphql(self) -> List[Item]:
+        raw: List[dict] = []
+        for page in range(MAX_PAGES):
+            batch = self.query(ITEMS_QUERY, limit=PAGE_SIZE, offset=page * PAGE_SIZE).get("items") or []
+            raw += batch
+            if len(batch) < PAGE_SIZE:
+                break
+        return parse_graphql_items(raw)
+
+    def fetch_items(self) -> List[Item]:
+        if self.game_mode == "pve":
+            # tarkov.dev's plain list ignores PvE and returns PvP prices.
+            return self.fetch_items_graphql()
         try:
-            data["hideoutStations"] = self.query(HIDEOUT_QUERY).get("hideoutStations") or []
+            data = self.get_json(LITE_ITEMS_URL)
+            if not isinstance(data, list):
+                raise ApiError(error_message(json.dumps(data).encode(), 200, "OK"))
+            items = parse_lite_items(data)
+            if items:
+                return items
+            raise ApiError("empty item list")
+        except Exception as lite_exc:
+            log.warning("tarkov.dev item list failed (%s); trying GraphQL", lite_exc)
+            try:
+                return self.fetch_items_graphql()
+            except Exception as gql_exc:
+                raise ApiError(f"{lite_exc} (GraphQL: {gql_exc})") from None
+
+    def fetch_needs(self):
+        """(hideout, quests) by item id; None where the request failed."""
+        hideout = quests = None
+        try:
+            hideout = parse_hideout(self.query(HIDEOUT_QUERY).get("hideoutStations") or [])
         except Exception as exc:
             log.warning("Hideout requirements unavailable: %s", exc)
-        return data
+        try:
+            quests = parse_tasks(self.query(TASKS_QUERY).get("tasks") or [])
+        except Exception as exc:
+            log.warning("Quest requirements unavailable: %s", exc)
+        return hideout, quests
 
     def refresh(self) -> bool:
         with self._lock:
             try:
-                items = parse_items(self.fetch())
+                items = self.fetch_items()
             except Exception as exc:
                 self.error = str(exc)
                 log.warning("Could not update prices from tarkov.dev: %s", exc)
                 return False
+
+            previous = {i.id: i for i in self.items}
+            hideout = quests = None
+            if time.time() - self.needs_updated > NEEDS_MAX_AGE:
+                hideout, quests = self.fetch_needs()
+                if hideout is not None and quests is not None:
+                    self.needs_updated = time.time()
+            for item in items:
+                old = previous.get(item.id)
+                item.hideout = hideout.get(item.id, []) if hideout is not None else (old.hideout if old else [])
+                item.quests = quests.get(item.id, []) if quests is not None else (old.quests if old else [])
+
             self.set_items(items)
             self.error = None
             log.info("Prices updated: %d items", len(items))
@@ -324,7 +451,9 @@ def describe(item: Item) -> List[str]:
         lines.append(f"Flea: {rub(item.flea_price)} avg   lowest {rub(item.last_low)}{change}")
     if item.best_trader:
         lines.append(f"Trader: {item.best_trader} {rub(item.best_trader_price)}")
-    slots = f" ({item.width}x{item.height})" if item.slots > 1 else ""
+    slots = ""
+    if item.slots > 1:
+        slots = f" ({item.size})" if item.size else f" ({item.slots} slots)"
     lines.append(f"Per slot: {rub(item.per_slot)}{slots}   sell to: {item.best_place}")
     if item.hideout:
         lines.append("Hideout: " + ", ".join(item.hideout))

@@ -63,7 +63,12 @@ class PricesTab:
 
     def update_info(self) -> None:
         if self.prices.error and not self.prices.items:
-            self.info.set(f"Couldn't download prices: {self.prices.error}")
+            self.info.set(f"Couldn't download prices: {self.prices.error[:150]} (retrying every minute)")
+        elif self.prices.error:
+            self.info.set(
+                f"{len(self.prices.items)} items, updated {age_text(self.prices.age)} "
+                "(tarkov.dev not responding, retrying)"
+            )
         else:
             self.info.set(f"{len(self.prices.items)} items, updated {age_text(self.prices.age)}")
 
