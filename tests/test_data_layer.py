@@ -226,6 +226,7 @@ def test_parse_version():
 
 def test_update_replaces_code_and_keeps_user_files(tmp_path):
     make_install(tmp_path)
+    (tmp_path / "vermin-1.8.0-py3-none-any.whl").write_bytes(b"shipped by mistake")
     messages = []
     updater.Updater(root=tmp_path).apply(messages.append, data=make_zip(NEW_RELEASE))
     assert '1.1.0' in (tmp_path / "tarkov_display" / "__init__.py").read_text()
@@ -234,6 +235,7 @@ def test_update_replaces_code_and_keeps_user_files(tmp_path):
     assert (tmp_path / "README.md").read_text() == "new readme\n"
     assert (tmp_path / "my_notes.txt").read_text() == "mine\n"
     assert not (tmp_path / "tarkov_display.old").exists()
+    assert not (tmp_path / "vermin-1.8.0-py3-none-any.whl").exists()
     assert messages[-1] == "Installed."
 
 

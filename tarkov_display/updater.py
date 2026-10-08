@@ -30,6 +30,9 @@ log = logging.getLogger(__name__)
 REPO = "Grat6969/EFT-amd-control"
 DEFAULT_BRANCH = "claude/tarkov-display-optimizer-30yah9"
 PACKAGE = "tarkov_display"
+# Files earlier versions shipped by mistake; removed when updating. (Other
+# files in the app folder are never deleted: they could be yours.)
+STALE_FILES = ("vermin-1.8.0-py3-none-any.whl",)
 
 
 def parse_version(text: str) -> tuple:
@@ -149,6 +152,11 @@ class Updater:
             backup.rename(package)
             raise
         shutil.rmtree(backup, ignore_errors=True)
+        for name in STALE_FILES:
+            try:
+                (root / name).unlink()
+            except OSError:
+                pass
         for cache in root.rglob("__pycache__"):
             shutil.rmtree(cache, ignore_errors=True)
         new_requirements = (root / "requirements.txt").read_bytes() if (root / "requirements.txt").exists() else b""

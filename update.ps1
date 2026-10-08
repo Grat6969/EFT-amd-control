@@ -45,6 +45,8 @@ try {
         throw
     }
     if (Test-Path $Backup) { Remove-Item $Backup -Recurse -Force }
+    # A file an earlier version shipped by mistake.
+    Remove-Item (Join-Path $AppDir 'vermin-1.8.0-py3-none-any.whl') -Force -ErrorAction SilentlyContinue
     Get-ChildItem $AppDir -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
 
     try {
