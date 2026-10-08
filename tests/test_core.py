@@ -193,5 +193,28 @@ def test_config_roundtrip(tmp_path):
     assert load_config(path).active_profile in load_config(path).profiles
 
 
+def test_bad_settings_fall_back_to_defaults(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({
+        "port": "47821", "poll_seconds": "fast", "hotkeys": 1, "game_mode": "arena",
+        "profiles": {"mine": {"saturation": "lots", "gamma": 1, "hue": 5, "brightness": None}, "odd": 7},
+        "auto": {"enabled": True, "dark_level": "0.1", "brightness_boost": 20},
+        "logs": [], "tracker": {"tokens": "x", "push": True},
+    }))
+    cfg = load_config(path)
+    default = Config()
+    assert (cfg.port, cfg.poll_seconds, cfg.hotkeys, cfg.game_mode) == (default.port, default.poll_seconds, True, "regular")
+    assert cfg.profiles["mine"] == Profile(saturation=100, gamma=1, hue=5, brightness=None)
+    assert cfg.profiles["odd"] == Profile()
+    assert cfg.auto.enabled is True and cfg.auto.dark_level == default.auto.dark_level and cfg.auto.brightness_boost == 20
+    assert cfg.logs == default.logs and cfg.tracker.tokens == {} and cfg.tracker.push is True
+
+    # A damaged file is kept aside and the app starts with defaults.
+    path.write_text('{"active_profile": "night", ')
+    assert load_config(path).active_profile == default.active_profile
+    assert (tmp_path / "config.json.bad").read_text() == '{"active_profile": "night", '
+    assert json.loads(path.read_text())["active_profile"] == default.active_profile
+
+
 def test_all_color_types_handled():
     assert set(COLOR_TYPES) == set(DEFAULTS)

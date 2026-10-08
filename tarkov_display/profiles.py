@@ -3,10 +3,38 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Dict, List, Optional
+
+log = logging.getLogger(__name__)
+
+
+def _fits(value, default, optional: bool) -> bool:
+    """Is ``value`` the same kind of setting as ``default``?"""
+    if value is None:
+        return optional or default is None
+    if default is None:  # an optional number that is off by default
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(default, bool) or isinstance(value, bool):
+        return isinstance(value, bool) and isinstance(default, bool)
+    if isinstance(default, float):
+        return isinstance(value, (int, float))
+    return isinstance(value, type(default))
+
+
+def _from_dict(cls, data):
+    """Settings from the config file. Unknown keys, and values of the wrong
+    kind (say, after editing the file by hand), fall back to the defaults."""
+    default = cls()
+    if not isinstance(data, dict):
+        return default
+    return cls(**{
+        f.name: data[f.name] for f in fields(cls)
+        if f.name in data and _fits(data[f.name], getattr(default, f.name), "Optional" in str(f.type))
+    })
 
 
 @dataclass
@@ -27,8 +55,7 @@ class Profile:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Profile":
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return _from_dict(cls, data)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,8 +93,7 @@ class AutoConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "AutoConfig":
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return _from_dict(cls, data)
 
 
 @dataclass
@@ -87,8 +113,7 @@ class ScanConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ScanConfig":
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return _from_dict(cls, data)
 
 
 @dataclass
@@ -101,8 +126,7 @@ class LogsConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "LogsConfig":
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return _from_dict(cls, data)
 
 
 @dataclass
@@ -117,8 +141,7 @@ class TrackerConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TrackerConfig":
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        return _from_dict(cls, data)
 
 
 def default_config_dir() -> Path:
@@ -175,11 +198,13 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict) -> "Config":
         cfg = cls()
+        if not isinstance(data, dict):
+            return cfg
         if isinstance(data.get("profiles"), dict) and data["profiles"]:
             cfg.profiles = {k: Profile.from_dict(v) for k, v in data["profiles"].items()}
         for key in ("active_profile", "process_names", "foreground_only", "hotkeys", "poll_seconds",
                     "keep_running", "update_branch", "port"):
-            if key in data:
+            if key in data and _fits(data[key], getattr(cfg, key), False):
                 setattr(cfg, key, data[key])
         if isinstance(data.get("auto"), dict):
             cfg.auto = AutoConfig.from_dict(data["auto"])
@@ -202,8 +227,16 @@ def load_config(path: Optional[Path] = None) -> Config:
         cfg = Config()
         save_config(cfg, path)
         return cfg
-    with open(path, "r", encoding="utf-8") as fh:
-        return Config.from_dict(json.load(fh))
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return Config.from_dict(json.load(fh))
+    except ValueError as exc:  # damaged file: keep a copy and start with defaults
+        bad = path.with_name(path.name + ".bad")
+        log.warning("Settings file %s is unreadable (%s); saved it as %s and started fresh", path, exc, bad.name)
+        os.replace(path, bad)
+        cfg = Config()
+        save_config(cfg, path)
+        return cfg
 
 
 def save_config(cfg: Config, path: Optional[Path] = None) -> Path:
