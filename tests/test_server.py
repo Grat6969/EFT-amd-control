@@ -233,3 +233,12 @@ def test_display_state_reports_taken_hotkeys(webapp):
     webapp.app.hotkeys = types.SimpleNamespace(failed=["Ctrl+Alt+P"], stop=lambda: None)
     state = body(call(webapp.server, "/api/display"))
     assert state["hotkeysTaken"] == ["Ctrl+Alt+P"] and "ocr" in state
+
+
+def test_window_fits_small_and_scaled_screens():
+    from tarkov_display.window import WINDOW_SIZE, fit_window
+
+    assert fit_window(WINDOW_SIZE, (2560, 1400), 96) == WINDOW_SIZE        # big screen: as designed
+    assert fit_window(WINDOW_SIZE, (1920, 1040), 144) == (1203, 651)      # 1080p laptop at 150%
+    assert fit_window(WINDOW_SIZE, (1366, 728), 96) == (1284, 684)        # small screen
+    assert fit_window(WINDOW_SIZE, (1920, 1040), 0) == (1480, 940)        # unknown DPI: treated as 96
