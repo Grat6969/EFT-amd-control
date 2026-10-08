@@ -44,14 +44,19 @@ class WindowsOcr:
     def __init__(self) -> None:
         try:
             from winrt.windows.globalization import Language
-            from winrt.windows.graphics.imaging import BitmapPixelFormat, SoftwareBitmap
+            from winrt.windows.graphics.imaging import BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap
             from winrt.windows.media.ocr import OcrEngine
             from winrt.windows.storage.streams import DataWriter
         except ImportError as exc:
             raise OcrUnavailable(INSTALL_HINT) from exc
         self._SoftwareBitmap = SoftwareBitmap
         self._BGRA8 = BitmapPixelFormat.BGRA8
+        self._IGNORE_ALPHA = BitmapAlphaMode.IGNORE
         self._DataWriter = DataWriter
+        try:
+            self.max_dimension = int(OcrEngine.max_image_dimension)
+        except Exception:
+            self.max_dimension = 2600
         engine = None
         try:
             engine = OcrEngine.try_create_from_language(Language("en-US"))
@@ -66,7 +71,10 @@ class WindowsOcr:
 
         writer = self._DataWriter()
         writer.write_bytes(bgra)
-        bitmap = self._SoftwareBitmap.create_copy_from_buffer(writer.detach_buffer(), self._BGRA8, w, h)
+        # Screen captures leave the alpha byte at 0. The default (premultiplied)
+        # alpha mode would read that as fully transparent: a blank image.
+        bitmap = self._SoftwareBitmap.create_copy_with_alpha_from_buffer(
+            writer.detach_buffer(), self._BGRA8, w, h, self._IGNORE_ALPHA)
 
         async def run():
             return await self.engine.recognize_async(bitmap)
@@ -117,6 +125,8 @@ def parse_tesseract_tsv(tsv: str) -> List[OcrLine]:
 
 
 class TesseractOcr:
+    max_dimension = 10000
+
     def __init__(self) -> None:
         self.exe = find_tesseract()
         if not self.exe:

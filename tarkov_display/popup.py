@@ -31,6 +31,57 @@ def _font(size: int, bold: bool = False):
     return (family, size, "bold" if bold else "normal")
 
 
+def place_beside(cursor, size, bounds, gap: int = 30):
+    """Top-left corner for the popup: beside the cursor (away from the game's
+    own tooltip), kept inside the monitor ``bounds`` = (left, top, right, bottom)."""
+    (x, y), (w, h), (left, top, right, bottom) = cursor, size, bounds
+    px = x + gap if x + gap + w <= right else x - gap - w
+    py = y - h - gap
+    px = max(left, min(px, right - w))
+    py = max(top, min(py, bottom - h))
+    return px, py
+
+
+def monitor_bounds(point):
+    """Work area of the monitor under ``point`` (Windows), or None."""
+    if sys.platform != "win32":
+        return None
+    try:
+        from ctypes import wintypes
+
+        class MONITORINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                        ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+
+        user32 = ctypes.windll.user32
+        user32.MonitorFromPoint.restype = wintypes.HMONITOR
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(MONITORINFO)]
+        monitor = user32.MonitorFromPoint(wintypes.POINT(int(point[0]), int(point[1])), 2)  # nearest
+        info = MONITORINFO()
+        info.cbSize = ctypes.sizeof(info)
+        if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+            return None
+        r = info.rcWork
+        return r.left, r.top, r.right, r.bottom
+    except Exception:
+        return None
+
+
+def make_dpi_aware() -> None:
+    """Use real pixels everywhere (mouse position, screenshots, popup position).
+    Must run before any window is created, or they disagree on scaled displays."""
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # per-monitor aware
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
 class PopupHost:
     """Owns the hidden Tk root on the main thread and shows popups that
     other threads ask for via ``show()``."""
@@ -113,12 +164,9 @@ class PopupHost:
             tk.Label(body, text=footer, bg=BG, fg=MUTED, font=_font(8), anchor="w").pack(anchor="w", pady=(8, 0))
 
         win.update_idletasks()
-        x, y = cursor
-        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
         w, h = win.winfo_reqwidth(), win.winfo_reqheight()
-        # Beside the cursor, away from the game's own tooltip.
-        px = x - w - 30 if x + 30 + w > sw else x + 30
-        py = min(max(0, y - h - 30), sh - h)
+        bounds = monitor_bounds(cursor) or (0, 0, win.winfo_screenwidth(), win.winfo_screenheight())
+        px, py = place_beside(cursor, (w, h), bounds)
         win.geometry(f"+{px}+{py}")
         self.win = win
         self._show_no_activate(win)

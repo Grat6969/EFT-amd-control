@@ -16,7 +16,7 @@ from tarkov_display.prices import (
     parse_graphql_items, parse_hideout, parse_lite_items, parse_tasks, rub,
 )
 from tarkov_display.profiles import ScanConfig
-from tarkov_display.scanner import capture_rect
+from tarkov_display.scanner import capture_rect, ocr_scale
 from tarkov_display.screen import to_bmp
 
 
@@ -392,3 +392,10 @@ def test_item_list_error_object_falls_back(monkeypatch):
     d = PriceDB()
     assert d.refresh() is True
     assert "items" in api.kinds() and len(d.items) == len(API_ITEMS)
+
+
+def test_ocr_scale_respects_engine_limit():
+    assert ocr_scale(2, 680, 180, 2600) == 2          # 1080p: doubled
+    assert ocr_scale(2, 1360, 360, 2600) == 1         # 4K: doubling would be 2720 px
+    assert ocr_scale(3, 600, 100, 10000) == 3
+    assert ocr_scale(0, 600, 100, 2600) == 1

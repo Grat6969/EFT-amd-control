@@ -39,6 +39,13 @@ def capture_rect(cursor, screen_height: int, cfg: ScanConfig):
     return cx - left, cy - up, left + int(cfg.right * k), up + int(cfg.down * k), left, up
 
 
+def ocr_scale(wanted, w: int, h: int, max_dimension: int) -> int:
+    """How much to enlarge the capture: as asked, but never past what the OCR
+    engine accepts (Windows OCR refuses images over ~2600 pixels)."""
+    fits = max(1, max_dimension // max(1, w, h))
+    return max(1, min(int(wanted), fits))
+
+
 class ItemScanner:
     def __init__(self, prices: PriceDB, cfg: ScanConfig, debug_dir: Optional[Path] = None) -> None:
         self.prices = prices
@@ -62,7 +69,7 @@ class ItemScanner:
         cursor = self.screen.cursor_pos()
         screen_h = self.screen.target_rect()[3]
         x, y, w, h, cx, cy = capture_rect(cursor, screen_h, self.cfg)
-        scale = max(1, int(self.cfg.scale))
+        scale = ocr_scale(self.cfg.scale, w, h, getattr(self.ocr, "max_dimension", 2600))
         try:
             bgra, iw, ih = self.screen.grab(x, y, w, h, scale)
         except OSError as exc:

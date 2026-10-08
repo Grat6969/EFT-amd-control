@@ -223,6 +223,9 @@ def main(argv=None) -> int:
     )
 
     args = parser.parse_args(argv)
+    from .popup import make_dpi_aware
+
+    make_dpi_aware()  # before any window or screenshot
     if sys.platform != "win32" and args.command not in (None, "gui", "list", "price"):
         print("tarkov-display controls Windows display drivers and only runs on Windows.")
         return 1

@@ -199,3 +199,15 @@ def test_game_mode_switch_swaps_data(webapp):
     assert call(s, "/api/settings", "POST", {"gameMode": "arena"})[0] == 400
     body(call(s, "/api/settings", "POST", {"gameMode": "regular"}))
     assert body(call(s, "/api/progress"))["player_level"] == 30
+
+
+def test_popup_placement_stays_on_the_monitor():
+    from tarkov_display.popup import place_beside
+
+    screen = (0, 0, 1920, 1080)
+    assert place_beside((500, 500), (300, 200), screen) == (530, 270)        # right of and above the cursor
+    assert place_beside((1800, 500), (300, 200), screen) == (1470, 270)      # flips left near the right edge
+    assert place_beside((500, 50), (300, 200), screen) == (530, 0)           # never above the top
+    second = (1920, 0, 4480, 1440)                                             # monitor to the right
+    assert place_beside((4400, 1400), (300, 200), second) == (4070, 1170)
+    assert place_beside((1925, 700), (300, 200), second)[0] >= 1920
