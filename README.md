@@ -171,11 +171,13 @@ If another program already uses one of these, Windows gives it to that program; 
 
 ## Where the data comes from
 
-- **[tarkov.dev](https://tarkov.dev)**: a free, open-source community API built from the
-  game's own data, live flea market scans, and the official
-  [server status page](https://status.escapefromtarkov.com/). Prices refresh every
-  15 minutes; quests, hideout and the rest every few hours. Everything is cached, so
-  the app still works offline with the last data it downloaded.
+- **[tarkov.dev](https://tarkov.dev)**: a free, open-source community project built from
+  the game's own data, live flea market scans, and the official
+  [server status page](https://status.escapefromtarkov.com/). The app reads the same
+  data files tarkov.dev's website loads (`json.tarkov.dev`), and only falls back to
+  their GraphQL API, which is often overloaded ("GraphQL server unavailable"). Prices
+  refresh every 15 minutes; quests, hideout and the rest every few hours. Everything is
+  cached, so the app still works offline with the last data it downloaded.
 - **tarkov.dev's website data on GitHub**: which map images exist (and who made them)
   and wipe dates.
 - **Map images** are made by the community artists credited on each map.
@@ -186,7 +188,7 @@ breaks whenever they change, so they aren't used.
 
 If a page says "Couldn't load this from tarkov.dev", their server is busy; the app keeps
 the last data it had and retries on its own. **Settings → Data from tarkov.dev** shows
-when each part was last updated and has refresh buttons.
+when each part was last updated, the error if one failed, and refresh buttons.
 
 ## Safety and privacy
 

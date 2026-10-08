@@ -12,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from . import staticapi
 from .client import ApiError, TarkovClient, error_message  # noqa: F401  (re-exported)
 
 log = logging.getLogger(__name__)
@@ -305,34 +306,55 @@ class PriceDB:
                 break
         return parse_graphql_items(raw)
 
+    def fetch_items_files(self) -> List[Item]:
+        """From tarkov.dev's item data file (what their website uses)."""
+        return parse_graphql_items(staticapi.price_list(self.client, max_age=self.max_age / 3))
+
     def fetch_items(self) -> List[Item]:
-        if self.game_mode == "pve":
-            # tarkov.dev's plain list ignores PvE and returns PvP prices.
-            return self.fetch_items_graphql()
-        try:
-            data = self.get_json(LITE_ITEMS_URL)
-            if not isinstance(data, list):
-                raise ApiError(error_message(json.dumps(data).encode(), 200, "OK"))
-            items = parse_lite_items(data)
-            if items:
-                return items
-            raise ApiError("empty item list")
-        except Exception as lite_exc:
-            log.warning("tarkov.dev item list failed (%s); trying GraphQL", lite_exc)
+        # PvP: the small plain item list first. (It ignores PvE and returns PvP
+        # prices, so PvE starts with the data file.) GraphQL comes last: it
+        # often fails with "GraphQL server unavailable".
+        sources = [("data file", self.fetch_items_files), ("GraphQL", self.fetch_items_graphql)]
+        if self.game_mode != "pve":
+            sources.insert(0, ("item list", self.fetch_items_lite))
+        errors = []
+        for name, fetch in sources:
             try:
-                return self.fetch_items_graphql()
-            except Exception as gql_exc:
-                raise ApiError(f"{lite_exc} (GraphQL: {gql_exc})") from None
+                items = fetch()
+                if items:
+                    return items
+                raise ApiError("no items")
+            except Exception as exc:
+                log.warning("tarkov.dev %s failed: %s", name, exc)
+                errors.append(f"{name}: {exc}" if errors else str(exc))
+        raise ApiError(errors[0] + (f" ({'; '.join(errors[1:])})" if len(errors) > 1 else ""))
+
+    def fetch_items_lite(self) -> List[Item]:
+        data = self.get_json(LITE_ITEMS_URL)
+        if not isinstance(data, list):
+            raise ApiError(error_message(json.dumps(data).encode(), 200, "OK"))
+        return parse_lite_items(data)
 
     def fetch_needs(self):
         """(hideout, quests) by item id; None where the request failed."""
+        def first(*fetchers):
+            errors = []
+            for fetch in fetchers:
+                try:
+                    return fetch()
+                except Exception as exc:
+                    errors.append(str(exc))
+            raise ApiError("; ".join(errors))
+
         hideout = quests = None
         try:
-            hideout = parse_hideout(self.query(HIDEOUT_QUERY).get("hideoutStations") or [])
+            hideout = parse_hideout(first(lambda: staticapi.hideout(self.client),
+                                          lambda: self.query(HIDEOUT_QUERY).get("hideoutStations") or []))
         except Exception as exc:
             log.warning("Hideout requirements unavailable: %s", exc)
         try:
-            quests = parse_tasks(self.query(TASKS_QUERY).get("tasks") or [])
+            quests = parse_tasks(first(lambda: staticapi.tasks(self.client),
+                                       lambda: self.query(TASKS_QUERY).get("tasks") or []))
         except Exception as exc:
             log.warning("Quest requirements unavailable: %s", exc)
         return hideout, quests

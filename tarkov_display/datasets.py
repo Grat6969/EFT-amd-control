@@ -1,9 +1,10 @@
 """Everything else tarkov.dev offers: quests, hideout, barters, crafts, ammo,
 maps, traders, bosses, achievements, server status and goon sightings.
 
-Each dataset is a separate, small GraphQL request (big ones are what make
-tarkov.dev's back end time out), cached on disk and refreshed in the
-background when it gets old. Map images and wipe dates come from the
+Each dataset comes from tarkov.dev's data files (json.tarkov.dev, what
+their website uses; see staticapi), or from a small GraphQL request if a
+file can't be read. Datasets are cached on disk and refreshed in the
+background when they get old. Map images and wipe dates come from the
 tarkov.dev website's own data files on GitHub.
 """
 
@@ -19,7 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from .client import TarkovClient, drop_nulls
+from . import staticapi
+from .client import ApiError, TarkovClient, drop_nulls
 
 log = logging.getLogger(__name__)
 
@@ -250,6 +252,22 @@ def _q(query: str, key: str) -> Callable[[TarkovClient], object]:
     return lambda client: client.query(query)[key]
 
 
+def _files_or_query(from_files: Callable[[TarkovClient], object], query: str, key: str) -> Callable[[TarkovClient], object]:
+    """tarkov.dev's data file first; their GraphQL API only if that fails.
+    (GraphQL answers uncommon queries from one origin server, which is often
+    overloaded: "GraphQL server unavailable".)"""
+    def fetch(client: TarkovClient):
+        try:
+            return from_files(client)
+        except Exception as exc:
+            log.warning("tarkov.dev data file failed (%s); trying their GraphQL API", exc)
+            try:
+                return client.query(query)[key]
+            except Exception as gql_exc:
+                raise ApiError(f"Data file: {exc}. GraphQL: {gql_exc}") from None
+    return fetch
+
+
 def _map_images(client: TarkovClient):
     """2D/3D map images per map, from tarkov.dev's maps.json."""
     groups = client.get_json(TARKOV_DEV_DATA + "maps.json")
@@ -280,19 +298,20 @@ def _wipes(client: TarkovClient):
 
 
 DATASETS: Dict[str, Dataset] = {d.name: d for d in [
-    Dataset("tasks", 6 * HOUR, _q(TASKS_QUERY, "tasks")),
-    Dataset("hideout", 6 * HOUR, _q(HIDEOUT_QUERY, "hideoutStations")),
-    Dataset("barters", 6 * HOUR, _q(BARTERS_QUERY, "barters")),
-    Dataset("crafts", 6 * HOUR, _q(CRAFTS_QUERY, "crafts")),
-    Dataset("ammo", 12 * HOUR, _q(AMMO_QUERY, "ammo")),
-    Dataset("maps", 12 * HOUR, _q(MAPS_QUERY, "maps")),
-    Dataset("traders", 10 * 60, _q(TRADERS_QUERY, "traders")),  # reset timers
-    Dataset("cashoffers", 6 * HOUR, _q(CASH_OFFERS_QUERY, "traders")),
-    Dataset("bosses", 24 * HOUR, _q(BOSSES_QUERY, "bosses")),
-    Dataset("achievements", 24 * HOUR, _q(ACHIEVEMENTS_QUERY, "achievements"), per_mode=False),
-    Dataset("status", 5 * 60, _q(STATUS_QUERY, "status"), per_mode=False),
-    Dataset("goons", 5 * 60, _q(GOONS_QUERY, "goonReports")),
-    Dataset("flea", 24 * HOUR, _q(FLEA_QUERY, "fleaMarket")),
+    Dataset("tasks", 6 * HOUR, _files_or_query(staticapi.tasks, TASKS_QUERY, "tasks")),
+    Dataset("hideout", 6 * HOUR, _files_or_query(staticapi.hideout, HIDEOUT_QUERY, "hideoutStations")),
+    Dataset("barters", 6 * HOUR, _files_or_query(staticapi.barters, BARTERS_QUERY, "barters")),
+    Dataset("crafts", 6 * HOUR, _files_or_query(staticapi.crafts, CRAFTS_QUERY, "crafts")),
+    Dataset("ammo", 12 * HOUR, _files_or_query(staticapi.ammo, AMMO_QUERY, "ammo")),
+    Dataset("maps", 12 * HOUR, _files_or_query(staticapi.maps, MAPS_QUERY, "maps")),
+    Dataset("traders", 10 * 60, _files_or_query(staticapi.traders, TRADERS_QUERY, "traders")),  # reset timers
+    Dataset("cashoffers", 6 * HOUR, _files_or_query(staticapi.cashoffers, CASH_OFFERS_QUERY, "traders")),
+    Dataset("bosses", 24 * HOUR, _files_or_query(staticapi.bosses, BOSSES_QUERY, "bosses")),
+    Dataset("achievements", 24 * HOUR, _files_or_query(staticapi.achievements, ACHIEVEMENTS_QUERY, "achievements"),
+            per_mode=False),
+    Dataset("status", 5 * 60, _files_or_query(staticapi.status, STATUS_QUERY, "status"), per_mode=False),
+    Dataset("goons", 5 * 60, _files_or_query(staticapi.goons, GOONS_QUERY, "goonReports")),
+    Dataset("flea", 24 * HOUR, _files_or_query(staticapi.flea, FLEA_QUERY, "fleaMarket")),
     Dataset("mapimages", 24 * HOUR, _map_images, per_mode=False),
     Dataset("wipes", 24 * HOUR, _wipes, per_mode=False),
 ]}
@@ -430,8 +449,16 @@ class DataStore:
         cached = self._items.get(item_id)
         if cached and time.time() - cached[0] < max_age:
             return cached[1]
-        data = self.client.query(ITEM_QUERY, variables={"id": item_id})
-        result = {"item": data.get("item"), "history": data.get("history") or []}
+        try:
+            # Quests, barters and crafts that mention it come from the loaded
+            # datasets (asking for them also starts loading any that aren't).
+            result = staticapi.item_detail(self.client, item_id, tasks_data=self.get("tasks")["data"],
+                                           barters_data=self.get("barters")["data"],
+                                           crafts_data=self.get("crafts")["data"])
+        except Exception as exc:
+            log.info("Item details from tarkov.dev's data files failed (%s); trying GraphQL", exc)
+            data = self.client.query(ITEM_QUERY, variables={"id": item_id})
+            result = {"item": data.get("item"), "history": data.get("history") or []}
         with self._lock:  # requests come in on several threads
             self._items[item_id] = (time.time(), result)
             if len(self._items) > 200:

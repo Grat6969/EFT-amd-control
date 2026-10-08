@@ -105,11 +105,12 @@ def test_map_images_from_tarkov_dev_data():
 def test_item_details_use_variables_and_cache():
     client = FakeClient()
     store = DataStore(None, "regular", client)
-    result = store.item("5c0530ee86f774697952d952")
+    result = store.item("5c0530ee86f774697952d952")  # no data files here: GraphQL
     assert result["item"]["name"] == "LEDX" and result["history"]
-    assert client.queries[0][1] == {"id": "5c0530ee86f774697952d952"}
+    item_queries = lambda: [v for t, v in client.queries if "query Item(" in t]  # noqa: E731
+    assert item_queries() == [{"id": "5c0530ee86f774697952d952"}]
     store.item("5c0530ee86f774697952d952")
-    assert len(client.queries) == 1
+    assert len(item_queries()) == 1
     with pytest.raises(ValueError):
         store.item('x") { injected }')
 

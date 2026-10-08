@@ -102,7 +102,7 @@ export default {
       mount(dataBox,
         h("table.tbl.compact", h("thead", h("tr", h("th", "Data"), h("th", "Updated"), h("th", "Status"), h("th", ""))),
           h("tbody", rows.map((d) => h("tr",
-            h("td", NAMES[d.name] || d.name),
+            h("td", NAMES[d.name] || d.name, d.error && !d.loading ? h("div.small.down", { style: { maxWidth: "360px" } }, d.error.slice(0, 220)) : null),
             h("td.muted", d.updated ? fmt.ago(d.updated) : "never"),
             h("td", d.loading ? badge("Updating", "info") : d.error ? badge("Failed", "bad", d.error) : d.updated ? badge("OK", "good") : badge("Not loaded", "muted")),
             h("td.num", button("", async () => {
