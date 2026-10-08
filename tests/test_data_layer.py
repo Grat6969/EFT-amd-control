@@ -264,9 +264,13 @@ def test_update_rejects_bad_downloads(tmp_path):
 def test_check_reports_new_version(tmp_path, monkeypatch):
     make_install(tmp_path)
 
+    import base64
+
     def fake_download(url, timeout=60):
+        if "api.github.com" in url and "/contents/" in url:
+            return json.dumps({"content": base64.b64encode(b'__version__ = "9.0.0"\n').decode()}).encode()
         if url.endswith("__init__.py"):
-            return b'__version__ = "9.0.0"\n'
+            return b'__version__ = "8.0.0"\n'  # raw CDN copy can lag behind
         return json.dumps([{"commit": {"message": "Add things\n\nDetails", "author": {"date": "2026-10-08T00:00:00Z"}}}]).encode()
 
     monkeypatch.setattr(updater, "_download", fake_download)
@@ -274,6 +278,19 @@ def test_check_reports_new_version(tmp_path, monkeypatch):
     assert result["latest"] == "9.0.0" and result["available"] is True and result["error"] is None
     assert result["notes"][0]["title"] == "Add things"
     assert result["can_update"] is True
+
+
+def test_check_falls_back_to_raw_file(tmp_path, monkeypatch):
+    make_install(tmp_path)
+
+    def fake_download(url, timeout=60):
+        if "api.github.com" in url:
+            raise OSError("API rate limit exceeded")
+        return b'__version__ = "1.2.0"\n'
+
+    monkeypatch.setattr(updater, "_download", fake_download)
+    result = updater.Updater(root=tmp_path).check()
+    assert result["latest"] == "1.2.0" and result["error"] is None
 
 
 def test_check_offline(tmp_path, monkeypatch):

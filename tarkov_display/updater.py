@@ -7,7 +7,9 @@ Settings and progress live in %APPDATA%\\TarkovDisplay and are never touched.
 
 from __future__ import annotations
 
+import base64
 import io
+import json
 import logging
 import os
 import re
@@ -70,17 +72,11 @@ class Updater:
             "checked": time.time(), "error": None, "can_update": ok, "reason": reason,
         }
         try:
-            raw = _download(f"https://raw.githubusercontent.com/{REPO}/{self.branch}/{PACKAGE}/__init__.py", 20)
-            match = re.search(r'__version__\s*=\s*"([^"]+)"', raw.decode("utf-8", "replace"))
-            if not match:
-                raise ValueError("no version number in the latest code")
-            result["latest"] = match.group(1)
+            result["latest"] = self._latest_version()
             result["available"] = parse_version(result["latest"]) > parse_version(__version__)
         except Exception as exc:
             result["error"] = f"Couldn't check for updates: {exc}"
         try:
-            import json
-
             commits = json.loads(_download(f"https://api.github.com/repos/{REPO}/commits?sha={self.branch}&per_page=8", 20))
             result["notes"] = [
                 {"title": c["commit"]["message"].split("\n")[0], "date": c["commit"]["author"]["date"]}
@@ -90,6 +86,28 @@ class Updater:
             log.debug("Could not read change notes: %s", exc)
         self.last_check = result
         return result
+
+    def _latest_version(self) -> str:
+        """Version number in the newest code on GitHub. Asks the API first:
+        raw.githubusercontent.com is cached for a few minutes after a push."""
+        path = f"{PACKAGE}/__init__.py"
+        sources = [
+            f"https://api.github.com/repos/{REPO}/contents/{path}?ref={self.branch}",
+            f"https://raw.githubusercontent.com/{REPO}/{self.branch}/{path}",
+        ]
+        last_error: Exception = ValueError("no source")
+        for url in sources:
+            try:
+                raw = _download(url, 20)
+                if "api.github.com" in url:
+                    raw = base64.b64decode(json.loads(raw)["content"])
+                match = re.search(r'__version__\s*=\s*"([^"]+)"', raw.decode("utf-8", "replace"))
+                if match:
+                    return match.group(1)
+                last_error = ValueError("no version number in the latest code")
+            except Exception as exc:
+                last_error = exc
+        raise last_error
 
     def apply(self, progress: Callable[[str], None] = lambda msg: None, data: Optional[bytes] = None) -> None:
         """Download and install the latest code. Raises on failure, leaving
