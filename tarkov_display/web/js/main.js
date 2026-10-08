@@ -3,6 +3,7 @@
 import { openItem, setItemOpener, thumb } from "./components.js";
 import { close as closeItem, openItemPanel, refreshPanel } from "./item.js";
 import { fmt, h, icon, mount, toast, TOKEN } from "./lib.js";
+import { onGameEvent } from "./link.js";
 import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, store } from "./store.js";
 
 const NAV = [
@@ -166,6 +167,7 @@ function connect() {
     else toast(s.error ? `Price check failed: ${s.error}` : "Price check: couldn't identify the item", { kind: "warn" });
   }));
   es.addEventListener("update", json((u) => { store.state.updating = u; emit("update", u); }));
+  es.addEventListener("gamelog", json(onGameEvent));
   es.addEventListener("restarting", () => overlay("Restarting with the new version…"));
   es.addEventListener("reload", () => location.reload());
   es.onerror = () => {

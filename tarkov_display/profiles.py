@@ -91,6 +91,36 @@ class ScanConfig:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+@dataclass
+class LogsConfig:
+    """Reading the game's own log files (off unless you turn it on)."""
+
+    enabled: bool = False
+    path: str = ""          # custom Logs folder; "" = find it automatically
+    auto_map: bool = True   # show the map page when you load into a raid
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "LogsConfig":
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+
+@dataclass
+class TrackerConfig:
+    """TarkovTracker account link. Tokens are stored encrypted (see secretstore)."""
+
+    domain: str = "tarkovtracker.org"
+    tokens: Dict[str, str] = field(default_factory=dict)  # game mode -> protected token
+    auto_import: bool = False   # import when the app starts
+    push: bool = False          # send quests finished in game (from the logs) to TarkovTracker
+    last: Dict[str, dict] = field(default_factory=dict)  # game mode -> last import result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TrackerConfig":
+        known = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
+
+
 def default_config_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home() / ".config")
     return Path(base) / "TarkovDisplay"
@@ -114,6 +144,8 @@ class Config:
     keep_running: bool = False  # keep hotkeys/display running after the window closes
     update_branch: str = ""     # GitHub branch to update from; "" = the default
     port: int = 47821           # local port for the app window
+    logs: LogsConfig = field(default_factory=LogsConfig)
+    tracker: TrackerConfig = field(default_factory=TrackerConfig)
 
     @property
     def profile(self) -> Profile:
@@ -136,6 +168,8 @@ class Config:
             "keep_running": self.keep_running,
             "update_branch": self.update_branch,
             "port": self.port,
+            "logs": asdict(self.logs),
+            "tracker": asdict(self.tracker),
         }
 
     @classmethod
@@ -151,6 +185,10 @@ class Config:
             cfg.auto = AutoConfig.from_dict(data["auto"])
         if isinstance(data.get("scan"), dict):
             cfg.scan = ScanConfig.from_dict(data["scan"])
+        if isinstance(data.get("logs"), dict):
+            cfg.logs = LogsConfig.from_dict(data["logs"])
+        if isinstance(data.get("tracker"), dict):
+            cfg.tracker = TrackerConfig.from_dict(data["tracker"])
         if data.get("game_mode") in ("regular", "pve"):
             cfg.game_mode = data["game_mode"]
         if cfg.active_profile not in cfg.profiles:

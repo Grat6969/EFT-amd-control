@@ -14,6 +14,7 @@ from typing import List, Optional
 from . import APP_NAME, __version__
 from .app import App
 from .datasets import DATASETS, DataStore
+from .linking import GameLink
 from .prices import PriceDB, rub
 from .profiles import BUILTIN_PROFILES, Profile, load_config
 from .progress import Progress
@@ -59,6 +60,7 @@ class WebApp:
         self._started = time.time()
         self._displays = self._display_names()
         self.popup = None
+        self.link = GameLink(self)
         self.server = self._bind(port or cfg.port, restarted)
 
     # -- setup ----------------------------------------------------------
@@ -494,6 +496,8 @@ class WebApp:
         self.server.start()
         for target, name in ((self._scan_loop, "ScanResults"), (self._monitor_loop, "Monitor")):
             threading.Thread(target=target, name=name, daemon=True).start()
+        self.link.start_logs()
+        threading.Thread(target=self.link.auto_import, name="TrackerImport", daemon=True).start()
         if self.open_on_start:
             log.info("Opened %s", open_window(self.server.url))
         from .popup import create_host
@@ -512,6 +516,7 @@ class WebApp:
 
     def shutdown(self) -> None:
         self.stop_event.set()
+        self.link.stop_logs()
         try:
             self.server.stop()
         except Exception:

@@ -168,6 +168,9 @@ MAP_NAMES = [("Customs", "customs", "8-12", 40), ("Woods", "woods", "8-14", 45),
              ("Shoreline", "shoreline", "10-13", 45), ("Lighthouse", "lighthouse", "9-12", 40),
              ("Streets of Tarkov", "streets-of-tarkov", "12-16", 50), ("The Lab", "the-lab", "6-10", 35)]
 MAPS_MIN = {norm: {"id": oid(4000 + k), "name": name, "normalizedName": norm} for k, (name, norm, _, _) in enumerate(MAP_NAMES)}
+NAME_IDS = {"customs": "bigmap", "woods": "Woods", "factory": "factory4_day", "interchange": "Interchange",
+            "reserve": "RezervBase", "shoreline": "Shoreline", "lighthouse": "Lighthouse",
+            "streets-of-tarkov": "TarkovStreets", "the-lab": "laboratory"}
 
 BOSS_ROWS = [("Reshala", "customs", 0.38, 3), ("Shturman", "woods", 0.39, 2), ("Killa", "interchange", 0.38, 0),
              ("Glukhar", "reserve", 0.39, 6), ("Sanitar", "shoreline", 0.39, 2), ("Tagilla", "factory", 0.39, 0),
@@ -184,7 +187,7 @@ MAPS = []
 for k, (name, norm, players, duration) in enumerate(MAP_NAMES):
     bosses = [b for b in BOSS_ROWS if b[1] == norm]
     MAPS.append({
-        **MAPS_MIN[norm], "wiki": f"https://escapefromtarkov.fandom.com/wiki/{name.replace(' ', '_')}",
+        **MAPS_MIN[norm], "nameId": NAME_IDS[norm], "wiki": f"https://escapefromtarkov.fandom.com/wiki/{name.replace(' ', '_')}",
         "description": f"{name}: one of Tarkov's locations.", "enemies": ["PMC", "Scavs"] + [b[0] for b in bosses],
         "raidDuration": duration, "players": players, "minPlayerLevel": 20 if norm == "the-lab" else None, "maxPlayerLevel": None,
         "accessKeysMinPlayerLevel": None, "accessKeys": [ref("Red")] if norm == "the-lab" else [],

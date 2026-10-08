@@ -13,6 +13,7 @@ export const store = {
   itemsError: null,
   data: {},       // dataset name -> {data, updated, error}
   scans: [],
+  gameEvents: [],  // from the game log reader / TarkovTracker
 };
 
 const listeners = new Set();

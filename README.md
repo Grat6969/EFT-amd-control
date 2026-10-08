@@ -6,7 +6,9 @@ An all-in-one helper for **Escape from Tarkov** on Windows:
   trader prices, quests, hideout, barters, crafts, ammo, maps, bosses, traders,
   achievements, server status and goon sightings.
 - **Your progress**: tick off quests and hideout levels and the app works out what's
-  available next and every item you still need (and what it costs to buy).
+  available next and every item you still need (and what it costs to buy). Optionally
+  let it **follow Tarkov's own log files** to tick quests off as you finish them, and
+  **import your progress from TarkovTracker**.
 - **In-game price check**: hover over an item and press `Ctrl+Alt+P`.
 - **Automatic AMD display settings** while Tarkov is focused (saturation, brightness,
   contrast, gamma), with an optional boost when you walk into dark areas.
@@ -56,10 +58,49 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
 | **Traders** | Restock countdowns, loyalty level requirements, everything each trader sells |
 | **Display** | Display profiles, auto-boost and price-check settings |
-| **Settings** | PvP / PvE, your level and faction, flea fee settings, data refresh, updates, backup and restore |
+| **Settings** | PvP / PvE, your level and faction, flea fee settings, game log reader, TarkovTracker, data refresh, updates, backup and restore |
 
 Progress is saved on your PC, separately for PvP and PvE. **Settings → Backup** exports
 it to a file.
+
+## Automatic progress (optional)
+
+Both are in **Settings** and are off until you set them up.
+
+### Game log reader
+
+Tarkov writes plain-text log files to the `Logs` folder in its install folder. With
+**Read Tarkov's log files** on, the app follows the current session's logs and:
+
+- marks a quest done the moment you finish it (and every quest before it),
+- switches to the map page when you load into a raid (you can turn that off),
+- shows flea market sales,
+- warns you if Tarkov is in PvE but the app is showing PvP (or the other way round).
+
+The logs folder is found automatically for launcher and Steam installs; if it isn't, paste
+the path (for example `C:\Battlestate Games\Escape from Tarkov\Logs`).
+
+**Scan old logs** reads the sessions Tarkov still has on disk and offers to mark the
+quests you finished in them as done, together with every quest before them. That can fill
+in a lot of your history in one go.
+
+The app only opens these log files to read them. It never reads or changes the game's
+memory, process or any other file.
+
+### TarkovTracker
+
+If you track progress on [tarkovtracker.org](https://tarkovtracker.org) or
+[tarkovtracker.io](https://tarkovtracker.io), create an API token in your account
+settings there (allow it to read progress; also to write progress if you want quests sent
+back), pick the site in **Settings → TarkovTracker**, paste the token into the PvP or PvE
+box and click **Import now**. tarkovtracker.org tokens start with `PVP_` or `PVE_`.
+
+Importing adds finished quests, built hideout levels, your level and faction. It never
+removes anything you've ticked off in the app. You can also have it import every time
+the app starts, and send quests the game log reader sees you finish back to TarkovTracker.
+
+Tokens are stored encrypted for your Windows account (Windows DPAPI) and are only ever
+sent to the TarkovTracker site you chose.
 
 ## Price check in game: Ctrl+Alt+P
 
@@ -137,8 +178,9 @@ when each part was last updated and has refresh buttons.
 
 - The app's window is served from your own PC (127.0.0.1) and only that window can use
   it: every request needs a random key created at start-up.
-- It only talks to tarkov.dev, GitHub (for updates and map/wipe data) and the image
-  hosts used by tarkov.dev.
+- It only talks to tarkov.dev, GitHub (for updates and map/wipe data), the image hosts
+  used by tarkov.dev, and TarkovTracker if you add a token.
+- The game log reader (off by default) only reads Tarkov's log files.
 - It never reads or changes the game's memory, files or process.
 
 ## Command line

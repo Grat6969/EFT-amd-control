@@ -185,6 +185,38 @@ class Server:
         def update_apply(req, m, q, body):
             return ctx.update_apply()
 
+        @r("GET", "/api/gamelog")
+        def gamelog(req, m, q, body):
+            return ctx.link.logs_state()
+
+        @r("POST", "/api/gamelog")
+        def gamelog_change(req, m, q, body):
+            return ctx.link.logs_change(body)
+
+        @r("POST", "/api/gamelog/scan")
+        def gamelog_scan(req, m, q, body):
+            return ctx.link.scan()
+
+        @r("POST", "/api/gamelog/apply")
+        def gamelog_apply(req, m, q, body):
+            return ctx.link.apply_scan()
+
+        @r("GET", "/api/tracker")
+        def tracker(req, m, q, body):
+            return ctx.link.tracker_state()
+
+        @r("POST", "/api/tracker")
+        def tracker_change(req, m, q, body):
+            return ctx.link.tracker_change(body)
+
+        @r("POST", "/api/tracker/test")
+        def tracker_test(req, m, q, body):
+            return ctx.link.tracker_test((body or {}).get("mode"))
+
+        @r("POST", "/api/tracker/import")
+        def tracker_import(req, m, q, body):
+            return ctx.link.tracker_import((body or {}).get("mode"))
+
         @r("POST", "/api/quit")
         def quit_app(req, m, q, body):
             ctx.quit()

@@ -1,5 +1,6 @@
 import { itemCell, openItem, thumb, traderAvatar } from "../components.js";
-import { badge, card, empty, ext, fmt, h, icon, loading, mount, progressBar } from "../lib.js";
+import { eventList } from "../link.js";
+import { api, badge, card, empty, ext, fmt, h, icon, loading, mount, progressBar } from "../lib.js";
 import { dataset, fleaPrice, on, peek, perSlot, questContext, questState, store } from "../store.js";
 
 const STATUS = {
@@ -12,7 +13,7 @@ export default {
   render(root) {
     const cards = {
       status: h("div"), traders: h("div"), goons: h("div"), progress: h("div"),
-      display: h("div"), wipe: h("div"), scans: h("div"), value: h("div"),
+      display: h("div"), wipe: h("div"), scans: h("div"), value: h("div"), events: h("div"),
     };
     mount(root,
       h("div.grid.cols-3",
@@ -23,8 +24,9 @@ export default {
         card("Your progress", cards.progress, { actions: h("a.btn.ghost.small", { href: "#/quests" }, "Quests") }),
         card("Display", cards.display, { actions: h("a.btn.ghost.small", { href: "#/display" }, "Settings") }),
         card("Wipe", cards.wipe)),
-      h("div.grid.cols-2",
+      h("div.grid.cols-3",
         card("Recent price checks", cards.scans, { sub: "Ctrl+Alt+P in game" }),
+        card("Game events", cards.events, { sub: "from Tarkov's logs" }),
         card("Best value per slot", cards.value, { sub: "flea or trader, before fees", cls: "flush" })));
 
     const fill = (el, name, draw) => {
@@ -39,11 +41,13 @@ export default {
     drawDisplay(cards.display);
     drawScans(cards.scans);
     drawValue(cards.value);
+    drawEvents(cards.events, true);
 
     const timer = setInterval(() => tickCountdowns(root), 1000);
     const off = on((kind, detail) => {
       if (kind === "state") drawDisplay(cards.display);
       if (kind === "scan") drawScans(cards.scans);
+      if (kind === "gamelog") drawEvents(cards.events);
       if (kind === "items") drawValue(cards.value);
       if (kind === "progress" || (kind === "data" && (detail === "tasks" || detail === "hideout"))) drawProgress(cards.progress);
       if (kind === "data" && detail === "traders") fill(cards.traders, "traders", drawTraders);
@@ -167,6 +171,25 @@ function drawScans(el) {
       h("div.grow", h("div", s.item ? s.item.name : "Not identified"), h("div.muted.small", fmt.ago(s.time))),
       it ? h("span.val", fmt.rub(fleaPrice(it) || it.traderPrice)) : badge(s.error ? "error" : "no match", "warn"));
   })));
+}
+
+async function drawEvents(el, fetchFirst = false) {
+  let enabled = true;
+  if (fetchFirst) {
+    try {
+      const st = await api("gamelog");
+      enabled = st.enabled;
+      if (!store.gameEvents.length) store.gameEvents = st.events || [];
+    } catch { /* show what we have */ }
+  }
+  if (!store.gameEvents.length) {
+    mount(el, enabled
+      ? empty("Nothing yet.", "Quests you finish, raids you load into and flea sales show up here while Tarkov runs.")
+      : empty("The game log reader is off.", h("span", "Turn it on in ", h("a", { href: "#/settings" }, "Settings"),
+        " to tick off quests automatically as you finish them.")));
+    return;
+  }
+  mount(el, eventList(store.gameEvents, { limit: 7 }));
 }
 
 function drawValue(el) {

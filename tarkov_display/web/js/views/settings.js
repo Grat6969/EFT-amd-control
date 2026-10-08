@@ -1,4 +1,5 @@
 import { api, badge, button, card, ext, fmt, h, icon, loading, mount, segmented, select, toast, toggle } from "../lib.js";
+import { logsCard, trackerCard } from "../link.js";
 import { on, setProgress, store } from "../store.js";
 
 const NAMES = {
@@ -148,6 +149,9 @@ export default {
       h("div.grid.cols-2",
         card("You", profileBox),
         card("Updates", updateBox)),
+      h("div.grid.cols-2",
+        card("Game log reader", logsCard(), { sub: "off until you turn it on" }),
+        card("TarkovTracker", trackerCard(), { sub: "import your progress" })),
       h("div.grid.cols-2",
         card("Data from tarkov.dev", dataBox, { cls: "" }),
         h("div.grid", { style: { alignContent: "start" } },

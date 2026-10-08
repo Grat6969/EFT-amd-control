@@ -115,7 +115,7 @@ query Ammo {
 MAPS_QUERY = """
 query Maps {
   maps(lang: en%(mode)s) {
-    id name normalizedName wiki description enemies raidDuration players
+    id name normalizedName nameId wiki description enemies raidDuration players
     minPlayerLevel maxPlayerLevel accessKeysMinPlayerLevel
     accessKeys { ITEM }
     bosses {

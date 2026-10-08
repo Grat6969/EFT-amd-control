@@ -378,6 +378,10 @@ input[type="range"]:disabled { opacity: .4; }
 .countdown.soon { color: var(--good); }
 .big-num { font-family: var(--font-head); font-size: 34px; font-weight: 600; line-height: 1.1; }
 .big-sub { color: var(--muted); font-size: 12.5px; }
+.ev-ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-3); color: var(--text-2); flex: none; }
+.ev-ic.good { background: var(--good-soft); color: var(--good); }
+.ev-ic.bad { background: var(--bad-soft); color: var(--bad); }
+code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; background: var(--panel-3); border: 1px solid var(--line); padding: 1px 6px; border-radius: 5px; color: var(--text-2); word-break: break-all; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; }
