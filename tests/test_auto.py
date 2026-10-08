@@ -96,3 +96,30 @@ def test_watcher_boosts_in_dark_room(tmp_path):
     probe_off = GameWatcher(ctl, cfg, probe=lambda: (False, False), sampler=lambda: 0.02)
     probe_off.tick(0.25)
     assert ctl.active is None and adl.values["saturation"] == 110
+
+
+def test_boost_holds_while_another_window_is_in_front(tmp_path):
+    adl, gamma = FakeADL(), FakeGamma()
+    ctl = DisplayController(adl, gamma, tmp_path / "s.json")
+    cfg = Config()
+    cfg.auto.enabled = True
+    cfg.foreground_only = False  # profile stays on while alt-tabbed
+    state = {"focused": True, "scene": 0.02}
+    reads = []
+
+    def sample():
+        reads.append(state["scene"])
+        return state["scene"]
+
+    w = GameWatcher(ctl, cfg, probe=lambda: (True, state["focused"]), sampler=sample)
+    for _ in range(40):
+        w.tick(0.25)
+    boosted = w.adjuster.applied
+    assert boosted == 1.0
+
+    # Alt-tab to a bright browser: it isn't measured, the boost holds.
+    state.update(focused=False, scene=0.9)
+    reads.clear()
+    for _ in range(40):
+        w.tick(0.25)
+    assert reads == [] and w.adjuster.applied == boosted

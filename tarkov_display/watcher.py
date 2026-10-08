@@ -80,7 +80,10 @@ class GameWatcher:
             changed = self._applied != name
             if auto.enabled:
                 self.adjuster.auto = auto
-                if self.adjuster.update(self._scene_brightness(), dt or auto.sample_interval):
+                # Measure the game only (or the desktop in a preview without
+                # it); with another window in front, hold the current boost.
+                measure = focused or (self.force and not running)
+                if self.adjuster.update(self._scene_brightness() if measure else None, dt or auto.sample_interval):
                     changed = True
             elif self.adjuster.applied:
                 self.adjuster.reset()
