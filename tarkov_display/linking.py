@@ -66,6 +66,7 @@ class GameLink:
     def data_for(self, mode: str, name: str, fetch: bool = False):
         """A tarkov.dev dataset for a game mode; with ``fetch``, downloads it
         (waiting a little) if the app hasn't loaded it yet."""
+        mode = mode if mode in GAME_MODES else "regular"  # tarkov.dev has PvP and PvE data only
         if mode == self.cfg.game_mode:
             store = self.web.store
         else:

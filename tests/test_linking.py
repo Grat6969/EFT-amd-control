@@ -326,3 +326,9 @@ def test_mode_switch_is_one_step_for_log_quests(web):
     web.link.finish_quests("pve", [demo_task("Debut")["id"]])
     assert web.progress.snapshot()["tasks"] == [demo_task("Debut")["id"]]
     assert Progress(web.cfg_dir / "progress_regular.json").snapshot()["tasks"] == []
+
+
+def test_seasonal_events_use_pvp_data(web):
+    # tarkov.dev has no seasonal data set; no extra store or download for it.
+    assert web.link.data_for("seasonal", "maps") is web.store.snapshot("maps")["data"]
+    assert "seasonal" not in web.link._stores
