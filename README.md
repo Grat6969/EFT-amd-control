@@ -43,6 +43,14 @@ brightness and contrast are emulated and saturation has no effect.
 Leave the window open while you play (minimised is fine). Closing it restores
 your normal settings.
 
+### Updating
+
+Close the app, then double-click `update.bat`. It downloads the latest
+version from GitHub and replaces the code in this folder. Your profiles and
+settings are kept, because they are stored separately in
+`%APPDATA%\TarkovDisplay`. Any other files you put in this folder are left
+alone too.
+
 ### Recommended one-time setup
 
 Windows limits how far gamma can move. To allow the full range, double-click
