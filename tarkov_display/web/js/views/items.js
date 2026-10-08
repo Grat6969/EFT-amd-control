@@ -11,13 +11,14 @@ const CATEGORIES = [
 const state = {
   q: "", cat: local.get("items.cat", "all"), sort: local.get("items.sort", "slot"), dir: "desc",
   hideBanned: local.get("items.hideBanned", false), neededOnly: false,
+  relevance: true, // while searching, best matches first until a sort is picked
 };
 
 export default {
   title: "Prices",
   subtitle: "Live flea market and trader prices from tarkov.dev",
   render(root, { query }) {
-    if (query.q) state.q = query.q;
+    if (query.q) { state.q = query.q; state.relevance = true; }
     const results = h("div");
     const info = h("span.muted.small");
     const draw = () => {
@@ -34,9 +35,9 @@ export default {
       info.textContent = `${fmt.num(list.length)} items · prices ${fmt.ago(store.itemsUpdated)}`;
       mount(results, h("section.card.flush", h("div.card-body", table({
         rows: list,
-        sortKey: state.q && state.sort === "relevance" ? null : state.sort,
+        sortKey: state.q && state.relevance ? null : state.sort,
         sortDir: state.dir,
-        onSort: (key, dir) => { state.sort = key; state.dir = dir; draw(); },
+        onSort: (key, dir) => { state.sort = key; state.dir = dir; state.relevance = false; draw(); rebuildBar(); },
         onRow: (it) => openItem(it.id),
         emptyText: state.q ? `No items match “${state.q}”.` : "No items in this category.",
         columns: [
@@ -62,10 +63,10 @@ export default {
 
     mount(root,
       h("div.toolbar",
-        searchInput("Search by name or short name…", state.q, (v) => { state.q = v; draw(); }, { autofocus: true }),
+        searchInput("Search by name or short name…", state.q, (v) => { state.q = v; state.relevance = true; draw(); rebuildBar(); }, { autofocus: true }),
         segmented([["slot", "Per slot"], ["flea", "Flea price"], ["change", "48h change"]],
-          ["slot", "flea", "change"].includes(state.sort) ? state.sort : null,
-          (v) => { state.sort = v; state.dir = "desc"; draw(); rebuildBar(); }),
+          sortShown(),
+          (v) => { state.sort = v; state.dir = "desc"; state.relevance = false; draw(); rebuildBar(); }),
         toggle("Hide flea-banned", state.hideBanned, (v) => { state.hideBanned = v; draw(); }),
         toggle("Needed only", state.neededOnly, (v) => { state.neededOnly = v; draw(); }, "Items your open quests or hideout still need"),
         h("span.spacer"), info),
@@ -78,10 +79,13 @@ export default {
       }, label))),
       results);
 
+    function sortShown() {
+      return state.q && state.relevance ? null : state.sort;
+    }
     function rebuildBar() {
       const seg = root.querySelector(".seg");
       if (!seg) return;
-      [...seg.children].forEach((b, i) => b.classList.toggle("on", ["slot", "flea", "change"][i] === state.sort));
+      [...seg.children].forEach((b, i) => b.classList.toggle("on", ["slot", "flea", "change"][i] === sortShown()));
     }
 
     ["tasks", "hideout"].forEach((n) => dataset(n).then(draw).catch(() => {}));
