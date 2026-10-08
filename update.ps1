@@ -53,9 +53,13 @@ try {
         Write-Host "Latest change: $title"
     } catch { }
 
-    if (Get-Command python -ErrorAction SilentlyContinue) {
+    # The same Python run.bat uses: the py launcher if there is one.
+    $pyExe = $null; $pyArgs = @()
+    if (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }
+    elseif (Get-Command python -ErrorAction SilentlyContinue) { $pyExe = 'python' }
+    if ($pyExe) {
         Write-Host 'Checking Python packages...'
-        python -m pip install --quiet --disable-pip-version-check -r (Join-Path $AppDir 'requirements.txt')
+        & $pyExe @pyArgs -m pip install --quiet --disable-pip-version-check -r (Join-Path $AppDir 'requirements.txt')
     }
 
     Write-Host ''

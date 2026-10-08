@@ -21,7 +21,8 @@ reader on.
 ## Install
 
 1. Install Python 3.9 or newer from [python.org](https://www.python.org/downloads/)
-   (tick "Add python to PATH").
+   (ticking "Add python.exe to PATH" is a good idea; the scripts also find Python
+   through the `py` launcher the installer adds).
 2. Download this repository as a ZIP and unzip it anywhere.
 3. Double-click `install.bat` once (installs Windows' text recognition for the price check).
 4. Double-click `run.bat`. The app opens in its own window.
