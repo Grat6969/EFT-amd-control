@@ -5,8 +5,8 @@ you're doing this raid and see what to bring and where to go, check any item's p
 with one hotkey, follow every quest without opening the wiki, and get a clearer picture
 in dark areas on AMD cards.
 
-**[Download RaidReady for Windows](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReady-windows.zip)**: unzip it and double-click `run.bat`.
-Nothing else to install.
+**[Download RaidReady for Windows](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReadySetup.exe)**: run
+the installer and start RaidReady from the Start menu. Nothing else to install.
 
 ![RaidReady: raid plan, quest how and where, price check hotkey, AMD display boost](docs/raidready-card.png)
 
@@ -33,16 +33,26 @@ RaidReady is a fan-made tool. It isn't made or endorsed by Battlestate Games or 
 
 ## Install
 
-1. Download **[RaidReady-windows.zip](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReady-windows.zip)**.
-2. Right-click the zip, choose **Properties**, tick **Unblock** and press OK (so Windows
-   doesn't warn about every file). Then unzip it somewhere you can write to, such as
-   Documents (not Program Files).
-3. Double-click `run.bat` in the RaidReady folder. The app opens in its own window.
+1. Download **[RaidReadySetup.exe](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReadySetup.exe)**
+   and run it. It installs to your own user folder (no admin needed) and adds a Start menu
+   shortcut.
+2. If Windows says "Windows protected your PC", click **More info**, then **Run anyway**.
+   The installer isn't signed by a company yet, but every line of RaidReady is in this
+   repository, and it comes with its own copy of Python (the official one from python.org),
+   so there's nothing else to install.
+3. Start **RaidReady** from the Start menu. The app opens in its own window.
 
-The zip comes with its own copy of Python (the official one from python.org), so there's
-nothing else to install. If Windows says "Windows protected your PC", click **More info**,
-then **Run anyway**: the app isn't signed by a company, but every line of it is in this
-repository.
+<details>
+<summary>Prefer a portable copy (no installer)?</summary>
+
+1. Download **[RaidReady-windows.zip](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReady-windows.zip)**.
+2. Right-click the zip, choose **Properties**, tick **Unblock** and press OK, then unzip it
+   somewhere you can write to, such as Documents (not Program Files).
+3. Double-click `run.bat` in the RaidReady folder.
+
+It's the same app as the installer, just in a folder you can move or delete yourself.
+
+</details>
 
 <details>
 <summary>Install with your own Python instead</summary>
@@ -66,8 +76,10 @@ opens another window.
 
 - **In the app:** a gold "Update" button appears at the bottom of the sidebar when a
   new version is out. Click it (or go to **Settings → Updates**), then **Update &
-  restart**: the app downloads the new version, installs it and restarts itself.
-- **Without the app:** close it and double-click `update.bat`.
+  restart**: the app downloads the new version, installs it and restarts itself. This
+  works whether you used the installer or the portable zip.
+- **Without the app:** close it and either run the latest `RaidReadySetup.exe` over the
+  top, or double-click `update.bat` in the app folder.
 
 Updates replace the app's code only. Your settings, display profiles and progress are
 stored in `%APPDATA%\TarkovDisplay` and are kept.
@@ -300,5 +312,6 @@ The tests use fake tarkov.dev responses, so they run on any OS without internet.
 tarkov.dev's schema.
 
 Raising `__version__` in `tarkov_display/__init__.py` on the default branch makes GitHub
-build `RaidReady-windows.zip` (the app plus its own Python) and publish it as a release:
-see `.github/workflows/release.yml`.
+build both downloads (the app plus its own Python) and publish them as a release:
+`RaidReadySetup.exe` (the installer, from `installer/raidready.iss`) and
+`RaidReady-windows.zip` (the portable copy). See `.github/workflows/release.yml`.

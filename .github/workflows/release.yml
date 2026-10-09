@@ -1,9 +1,13 @@
 name: Release
 
-# Builds the one-click Windows download (the app plus its own copy of Python,
-# so players have nothing else to install) and publishes it as a GitHub
-# release whenever the version number changes on the default branch.
-# The download keeps a fixed name so this link always gets the newest one:
+# Builds the Windows downloads (the app plus its own copy of Python, so players
+# have nothing else to install) and publishes them as a GitHub release whenever
+# the version number changes on the default branch. Two artifacts, both built
+# from the same folder, so both keep the in-app updater working:
+#   - RaidReadySetup.exe  (one-click installer; the main download)
+#   - RaidReady-windows.zip  (portable, unzip and run)
+# The names are fixed, so these links always get the newest:
+# https://github.com/<owner>/<repo>/releases/latest/download/RaidReadySetup.exe
 # https://github.com/<owner>/<repo>/releases/latest/download/RaidReady-windows.zip
 
 on:
@@ -91,8 +95,23 @@ jobs:
           $tag = & "$py\python.exe" -c "import sys; print('%d%d' % sys.version_info[:2])"
           Set-Content -Encoding ascii (Join-Path $py "python$tag._pth") '.', 'Lib', 'DLLs', '..', 'import site'
 
+          # The app icon, for the installer's shortcuts (and harmless in the zip).
+          Copy-Item 'installer\raidready.ico' (Join-Path $app 'raidready.ico')
+
           Compress-Archive -Path $app -DestinationPath (Join-Path $out 'RaidReady-windows.zip') -CompressionLevel Optimal
           Get-Item (Join-Path $out 'RaidReady-windows.zip') | Format-Table Name, Length
+
+      - name: Build RaidReadySetup.exe
+        if: steps.version.outputs.released != 'True'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE) { throw 'Installing Inno Setup failed' }
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.version }}" installer\raidready.iss
+          if ($LASTEXITCODE) { throw 'Compiling the installer failed' }
+          Get-Item dist\RaidReadySetup.exe | Format-Table Name, Length
 
       - name: Check the download works on a clean PC
         if: steps.version.outputs.released != 'True'
@@ -142,20 +161,37 @@ jobs:
           if ($LASTEXITCODE) { throw 'pip is missing' }
           Pop-Location
 
+          # The installer: a silent per-user install to a temp folder, then run
+          # the installed copy. /TASKS= selects no optional tasks (no desktop icon).
+          $instdir = Join-Path $env:RUNNER_TEMP 'installed'
+          Start-Process -FilePath dist\RaidReadySetup.exe -Wait -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=',"/DIR=$instdir"
+          foreach ($f in 'python\python.exe', 'tarkov_display\__init__.py', 'raidready.ico', 'run.bat') {
+            if (-not (Test-Path (Join-Path $instdir $f))) { throw "Installer did not place $f" }
+          }
+          $lnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\RaidReady.lnk'
+          if (-not (Test-Path $lnk)) { throw 'Installer did not create the Start Menu shortcut' }
+          Push-Location $instdir
+          & "$instdir\python\python.exe" -m tarkov_display --help
+          if ($LASTEXITCODE) { throw 'The installed app failed to start' }
+          Pop-Location
+          Write-Host 'Installer verified: installs, places the app and shortcut, and runs.'
+
       - name: Publish the release
         if: steps.version.outputs.released != 'True'
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
           $notes = @"
-          **Download ``RaidReady-windows.zip`` below**, unzip it (Documents is a good place) and double-click ``run.bat``. The zip comes with its own Python, so there's nothing else to install.
+          **Download ``RaidReadySetup.exe`` below and run it.** It installs RaidReady and adds a Start Menu shortcut. The installer comes with its own Python, so there's nothing else to install.
 
-          Tip: right-click the zip, choose Properties, tick Unblock and press OK before unzipping, so Windows doesn't warn about each file.
+          Windows may say "Windows protected your PC" (the installer isn't signed yet): click **More info**, then **Run anyway**.
 
-          Already using RaidReady? Press Update in the app instead. Your settings and progress are kept.
+          Prefer a portable copy? ``RaidReady-windows.zip`` is the same app in a folder: unzip it and double-click ``run.bat``.
+
+          Already using RaidReady? Press **Update** in the app, or run the new installer over the top. Your settings and progress are kept either way.
 
           What it does, and how it stays clear of the game: see the [README](https://github.com/${{ github.repository }}#readme).
           "@
           $notes = ($notes -split "`n" | ForEach-Object { $_.Trim() }) -join "`n"
-          gh release create "v$version" dist\RaidReady-windows.zip --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "RaidReady $version" --notes $notes
+          gh release create "v$version" dist\RaidReadySetup.exe dist\RaidReady-windows.zip --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "RaidReady $version" --notes $notes
           if ($LASTEXITCODE) { throw 'Creating the release failed' }
