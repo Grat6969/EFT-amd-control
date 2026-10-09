@@ -8,6 +8,8 @@
 #endif
 
 [Setup]
+; Resolve the paths below from the repo root (this script lives in installer/).
+SourceDir=..
 AppId={{9DB4174C-60B1-40BE-BFAD-9D4D9A61F640}
 AppName=RaidReady
 AppVersion={#MyAppVersion}

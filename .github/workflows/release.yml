@@ -15,6 +15,7 @@ on:
     paths:
       - "tarkov_display/__init__.py"
       - ".github/workflows/release.yml"
+      - "installer/**"
   workflow_dispatch:
 
 permissions:
