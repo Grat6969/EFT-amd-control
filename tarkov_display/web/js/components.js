@@ -9,10 +9,10 @@ export function thumb(src, size = 40, cls = "") {
 }
 
 // Item reference: icon + name (+ count); click opens the item panel.
-export function itemChip(ref, count, { fir, compact, title } = {}) {
+export function itemChip(ref, count, { fir, compact, title, fullName } = {}) {
   const id = typeof ref === "string" ? ref : ref?.id;
   const known = item(id);
-  const name = known?.short || ref?.shortName || known?.name || ref?.name || "Unknown item";
+  const name = (fullName && (known?.name || ref?.name)) || known?.short || ref?.shortName || known?.name || ref?.name || "Unknown item";
   const full = known?.name || ref?.name || name;
   const src = known?.icon || ref?.iconLink;
   return h("button.chip" + (compact ? ".compact" : ""), {

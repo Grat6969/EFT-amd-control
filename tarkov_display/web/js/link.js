@@ -1,7 +1,8 @@
 // Game log reader and TarkovTracker: settings cards, event list, notifications.
 
 import { api, badge, button, ext, fmt, h, icon, mount, segmented, toast, toggle } from "./lib.js";
-import { emit, store } from "./store.js";
+import { isInRaid, onMap } from "./questinfo.js";
+import { emit, peek, store } from "./store.js";
 
 const MODE = { regular: "PvP", pve: "PvE", seasonal: "Seasonal" };
 
@@ -46,6 +47,15 @@ function importText(s) {
   return parts.join(" · ");
 }
 
+// Any unfinished pinned quest with something to do on this map?
+function pinnedOn(mapId) {
+  const tasks = peek("tasks");
+  if (!tasks || !mapId) return false;
+  const pinned = new Set(store.progress?.pinned || []);
+  const done = new Set(store.progress?.tasks || []);
+  return tasks.some((t) => pinned.has(t.id) && !done.has(t.id) && (t.objectives || []).some((o) => isInRaid(o) && onMap(o, mapId)));
+}
+
 // Called for every "gamelog" event from the app.
 export function onGameEvent(e) {
   store.gameEvents = [e, ...(store.gameEvents || [])].slice(0, 40);
@@ -63,8 +73,10 @@ export function onGameEvent(e) {
     return;
   }
   if (e.kind === "raid") {
-    if (e.autoMap && e.normalizedName) location.hash = `#/maps/${e.normalizedName}`;
-    toast(d.text, e.normalizedName && !e.autoMap ? { action: () => { location.hash = `#/maps/${e.normalizedName}`; }, actionLabel: "Map" } : {});
+    // With quests pinned for this map, its raid plan is more useful than the map page.
+    const target = e.normalizedName && pinnedOn(e.mapId) ? `#/raid/${e.normalizedName}` : e.normalizedName ? `#/maps/${e.normalizedName}` : null;
+    if (e.autoMap && target) location.hash = target;
+    toast(d.text, target && !e.autoMap ? { action: () => { location.hash = target; }, actionLabel: target.startsWith("#/raid") ? "Raid plan" : "Map" } : {});
     return;
   }
   toast(d.sub ? `${d.text} (${d.sub})` : d.text, { kind: d.kind || "" });
@@ -97,7 +109,7 @@ export function logsCard() {
       ? badge("Off", "muted")
       : st.folder ? badge(st.running ? "Reading" : "Found", "good") : badge("Logs folder not found", "bad");
     mount(box,
-      row("Read Tarkov's log files", "Marks quests done as you finish them, opens the map when a raid loads, and shows flea sales.",
+      row("Read Tarkov's log files", "Marks quests done as you finish them, opens your raid plan or the map when a raid loads, and shows flea sales.",
         toggle("", st.enabled, async (v) => { await api("gamelog", { method: "POST", body: { enabled: v } }); draw(); })),
       st.enabled ? h("div.note" + (st.folder ? "" : ".warn"), { style: { margin: "4px 0 6px" } }, icon(st.folder ? "info" : "alert", 16),
         h("div", status, " ",
@@ -110,7 +122,7 @@ export function logsCard() {
             try { await api("gamelog", { method: "POST", body: { path: pathInput.value } }); toast("Logs folder saved.", { kind: "good" }); draw(); }
             catch (e) { toast(e.message, { kind: "bad" }); }
           }, { kind: "small" }))),
-      row("Show the map when you load into a raid", "Switches this window to the map you're loading into.",
+      row("Show the raid plan or map when you load into a raid", "Opens your raid plan for that map if quests you pinned are on it, otherwise the map.",
         toggle("", st.autoMap, (v) => api("gamelog", { method: "POST", body: { autoMap: v } }))),
       row("Quests from old logs", "Tarkov keeps logs of earlier sessions. Finds quests you finished in them (and every quest before those).",
         button("Scan old logs", async () => {

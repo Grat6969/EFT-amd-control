@@ -156,6 +156,29 @@ def test_progress_changes_and_persists(tmp_path):
     assert p.snapshot()["owned"] == {} and p.snapshot()["hideout"] == {}
 
 
+def test_raid_plan_pins_and_objective_progress(tmp_path):
+    path = tmp_path / "progress_regular.json"
+    p = Progress(path)
+    p.apply({"op": "pin", "ids": ["debut", "shortage", "checking"], "pinned": True})
+    p.apply({"op": "pin", "ids": ["checking"], "pinned": False})
+    p.apply({"op": "objective", "id": "obj-kill", "count": 7})
+    p.apply({"op": "objective", "id": "obj-mark", "count": 1})
+    p.apply({"op": "objective", "id": "obj-mark", "count": 0})
+    snap = Progress(path).snapshot()
+    assert snap["pinned"] == ["debut", "shortage"] and snap["objectives"] == {"obj-kill": 7}
+
+    # Finishing a quest (by hand, from the game logs or TarkovTracker) unpins it.
+    p.apply({"op": "tasks", "ids": ["debut"], "done": True})
+    assert p.snapshot()["pinned"] == ["shortage"]
+    p.apply({"op": "reset", "what": "pinned"})
+    p.apply({"op": "reset", "what": "objectives"})
+    assert p.snapshot()["pinned"] == [] and p.snapshot()["objectives"] == {}
+    with pytest.raises(ValueError):
+        p.apply({"op": "objective", "id": "../x", "count": 1})
+    with pytest.raises(ValueError):
+        p.apply({"op": "pin", "ids": "debut", "pinned": True})
+
+
 def test_progress_rejects_bad_input(tmp_path):
     p = Progress(tmp_path / "p.json")
     for op in (

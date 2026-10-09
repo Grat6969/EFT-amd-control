@@ -9,7 +9,7 @@ import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, 
 const NAV = [
   ["Overview", [["home", "Home", "home"]]],
   ["Market", [["items", "Prices", "items"], ["barters", "Barters", "barters"], ["crafts", "Crafts", "crafts"], ["ammo", "Ammo", "ammo"]]],
-  ["Progress", [["quests", "Quests", "quests"], ["hideout", "Hideout", "hideout"], ["needed", "Needed items", "needed"], ["achievements", "Achievements", "achievements"]]],
+  ["Progress", [["quests", "Quests", "quests"], ["raid", "Raid plan", "raid"], ["hideout", "Hideout", "hideout"], ["needed", "Needed items", "needed"], ["achievements", "Achievements", "achievements"]]],
   ["World", [["maps", "Maps", "maps"], ["bosses", "Bosses", "bosses"], ["traders", "Traders", "traders"]]],
   ["App", [["display", "Display", "display"], ["settings", "Settings", "settings"]]],
 ];
@@ -44,10 +44,11 @@ function shell() {
 }
 
 function drawNav() {
+  const pinned = (store.progress?.pinned || []).filter((id) => !(store.progress?.tasks || []).includes(id)).length;
   mount(navEl, NAV.map(([group, items]) => h("div.nav-group",
     h("div.nav-label", group),
     items.map(([name, label, ic]) => h("a.nav-link" + (current.name === name ? ".active" : ""), { href: "#/" + name },
-      icon(ic, 18), h("span", label))))));
+      icon(ic, 18), h("span", label), name === "raid" && pinned ? h("span.nav-count", { title: `${pinned} pinned` }, String(pinned)) : null)))));
 }
 
 function drawFoot() {
@@ -211,7 +212,10 @@ async function boot() {
   setItemOpener(openItemPanel);
   loadItems().catch((e) => toast("Couldn't load prices: " + e.message, { kind: "bad" }));
   ["cashoffers", "flea", "tasks", "hideout"].forEach((n) => dataset(n).catch(() => {}));
-  on((kind) => { if (kind === "progress" || kind === "items") refreshPanel(); });
+  on((kind) => {
+    if (kind === "progress" || kind === "items") refreshPanel();
+    if (kind === "progress") drawNav();
+  });
   window.addEventListener("hashchange", route);
   setInterval(drawStatus, 30000);
   connect();

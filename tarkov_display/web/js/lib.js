@@ -174,6 +174,8 @@ const ICONS = {
   bolt: "M13 2 4 14h7l-1 8 9-12h-7z",
   lock: "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4",
   exit: "M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3",
+  pin: "M12 17v5M9 3h6l-1 6 4 4v2H6v-2l4-4z",
+  raid: "M12 22s7-6.3 7-12a7 7 0 0 0-14 0c0 5.7 7 12 7 12zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
 };
 
 export function icon(name, size = 18, cls = "") {

@@ -36,21 +36,9 @@ query Tasks {
     map { id name normalizedName }
     taskRequirements { task { id name } status }
     traderRequirements { trader { id name } requirementType compareMethod value }
-    objectives {
-      id type description optional
-      maps { id name normalizedName }
-      ... on TaskObjectiveItem { count foundInRaid items { ITEM } requiredKeys { ITEM } }
-      ... on TaskObjectiveQuestItem { count questItem { ITEM } requiredKeys { ITEM } }
-      ... on TaskObjectiveMark { markerItem { ITEM } requiredKeys { ITEM } }
-      ... on TaskObjectiveBuildItem { item { ITEM } }
-      ... on TaskObjectiveShoot { count targetNames }
-      ... on TaskObjectiveExtract { count exitName requiredKeys { ITEM } }
-      ... on TaskObjectiveBasic { requiredKeys { ITEM } }
-      ... on TaskObjectiveUseItem { count useAny { ITEM } }
-      ... on TaskObjectiveSkill { skillLevel { name level } }
-      ... on TaskObjectiveTraderLevel { trader { id name } level }
-      ... on TaskObjectivePlayerLevel { playerLevel }
-    }
+    objectives { ...ObjectiveParts }
+    failConditions { ...ObjectiveParts }
+    neededKeys { keys { ITEM } map { id name normalizedName } }
     finishRewards {
       items { count item { ITEM } }
       traderStanding { trader { id name } standing }
@@ -61,7 +49,36 @@ query Tasks {
     }
   }
 }
-""".replace("ITEM", ITEM)
+fragment ObjectiveParts on TaskObjective {
+  id type description optional
+  maps { id name normalizedName }
+  ... on TaskObjectiveItem {
+    count foundInRaid dogTagLevel minDurability maxDurability items { ITEM } requiredKeys { ITEM } zones { ZONE }
+  }
+  ... on TaskObjectiveQuestItem {
+    count questItem { ITEM } requiredKeys { ITEM } zones { ZONE } possibleLocations { map { id } }
+  }
+  ... on TaskObjectiveMark { markerItem { ITEM } requiredKeys { ITEM } zones { ZONE } }
+  ... on TaskObjectiveBuildItem {
+    item { ITEM } containsAll { ITEM } containsCategory { name } attributes { name requirement { compareMethod value } }
+  }
+  ... on TaskObjectiveShoot {
+    count shotType targetNames bodyParts zoneNames timeFromHour timeUntilHour
+    distance { compareMethod value } usingWeapon { ITEM } usingWeaponMods { ITEM } wearing { ITEM } notWearing { ITEM }
+    playerHealthEffect { HEALTH } enemyHealthEffect { HEALTH } requiredKeys { ITEM } zones { ZONE }
+  }
+  ... on TaskObjectiveExtract { count exitName exitStatus zoneNames requiredKeys { ITEM } }
+  ... on TaskObjectiveBasic { requiredKeys { ITEM } zones { ZONE } }
+  ... on TaskObjectiveUseItem { count compareMethod useAny { ITEM } zoneNames requiredKeys { ITEM } zones { ZONE } }
+  ... on TaskObjectiveExperience { healthEffect { HEALTH } }
+  ... on TaskObjectiveSkill { skillLevel { name level } }
+  ... on TaskObjectiveTraderLevel { trader { id name } level }
+  ... on TaskObjectiveTraderStanding { trader { id name } compareMethod value }
+  ... on TaskObjectiveTaskStatus { task { id name } status }
+  ... on TaskObjectiveHideoutStation { hideoutStation { id name } stationLevel }
+  ... on TaskObjectivePlayerLevel { playerLevel }
+}
+""".replace("ITEM", ITEM).replace("ZONE", "id map { id }").replace("HEALTH", "bodyParts effects time { compareMethod value }")
 
 HIDEOUT_QUERY = """
 query Hideout {

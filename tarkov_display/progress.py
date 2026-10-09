@@ -27,6 +27,8 @@ DEFAULT = {
     "hideout": {},             # station id -> built level
     "owned": {},               # item id -> how many you have put aside
     "achievements": [],        # unlocked achievement ids
+    "pinned": [],              # quest ids picked for the next raid
+    "objectives": {},          # objective id -> how far along (count done; 1 = done)
 }
 
 LIMITS = {"player_level": (1, 79), "intel_center": (0, 3), "hideout_management": (0, 51)}
@@ -63,11 +65,11 @@ def _clean(data: dict) -> dict:
                 pass
     if data.get("faction") in ("USEC", "BEAR"):
         out["faction"] = data["faction"]
-    for key in ("tasks", "achievements"):
+    for key in ("tasks", "achievements", "pinned"):
         values = data.get(key)
         if isinstance(values, list):
             out[key] = sorted({v for v in values if isinstance(v, str) and ID.match(v)})
-    for key, hi in (("hideout", 10), ("owned", 99999)):
+    for key, hi in (("hideout", 10), ("owned", 99999), ("objectives", 9999)):
         values = data.get(key)
         if isinstance(values, dict):
             out[key] = {
@@ -114,6 +116,21 @@ class Progress:
                 current = set(d[kind])
                 current = current | ids if op.get("done") else current - ids
                 d[kind] = sorted(current)
+                if kind == "tasks" and op.get("done"):  # finished quests leave the raid plan
+                    d["pinned"] = [t for t in d["pinned"] if t not in ids]
+            elif kind == "pin":
+                ids = set(_ids(op.get("ids")))
+                current = set(d["pinned"])
+                d["pinned"] = sorted(current | ids if op.get("pinned") else current - ids)
+            elif kind == "objective":
+                objective = op.get("id")
+                if not isinstance(objective, str) or not ID.match(objective):
+                    raise ProgressError("bad objective id")
+                count = _int(op.get("count"), 0, 9999)
+                if count:
+                    d["objectives"][objective] = count
+                else:
+                    d["objectives"].pop(objective, None)
             elif kind == "hideout":
                 station = op.get("station")
                 if not isinstance(station, str) or not ID.match(station):
@@ -144,9 +161,9 @@ class Progress:
                 what = op.get("what")
                 if what == "all":
                     self.data = d = copy.deepcopy(DEFAULT)
-                elif what in ("tasks", "achievements"):
+                elif what in ("tasks", "achievements", "pinned"):
                     d[what] = []
-                elif what in ("hideout", "owned"):
+                elif what in ("hideout", "owned", "objectives"):
                     d[what] = {}
                 else:
                     raise ProgressError("nothing to reset")

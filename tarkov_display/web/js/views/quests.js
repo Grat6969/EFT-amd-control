@@ -1,10 +1,11 @@
 import { itemChip, traderAvatar } from "../components.js";
 import { badge, button, empty, errorBox, ext, fmt, h, icon, loading, local, mount, searchInput, segmented, select, stat, toast, toggle } from "../lib.js";
-import { dataset, objectiveItems, on, prerequisites, questContext, questState, setProgress, store } from "../store.js";
+import { failView, neededKeysView, objectiveView, taskMapIds } from "../questinfo.js";
+import { dataset, on, prerequisites, questContext, questState, setProgress, store } from "../store.js";
 
 const state = {
   q: "", status: local.get("quests.status", "available"), trader: null, map: "all",
-  kappa: local.get("quests.kappa", false), lightkeeper: false, shown: 60,
+  kappa: local.get("quests.kappa", false), lightkeeper: false, pinned: false, shown: 60,
 };
 const open = new Set();
 
@@ -14,14 +15,20 @@ export default {
   async render(root, { query }) {
     if (query.q) { state.q = query.q; state.status = "all"; }
     mount(root, loading("Loading quests from tarkov.dev…"));
-    let tasks;
-    try { tasks = await dataset("tasks"); } catch (e) {
+    let tasks, allMaps;
+    try { [tasks, allMaps] = await Promise.all([dataset("tasks"), dataset("maps").catch(() => [])]); } catch (e) {
       mount(root, errorBox(e.message, () => this.render(root, { query })));
       return;
     }
     const traders = [...new Map(tasks.map((t) => [t.trader?.id, t.trader])).values()].filter(Boolean)
       .sort((a, b) => a.name.localeCompare(b.name));
-    const maps = [...new Map(tasks.filter((t) => t.map).map((t) => [t.map.id, t.map])).values()].sort((a, b) => a.name.localeCompare(b.name));
+    // Every map a quest or one of its objectives is on.
+    const mapNames = new Map(allMaps.map((m) => [m.id, m.name]));
+    for (const t of tasks) {
+      for (const m of [t.map, ...(t.objectives || []).flatMap((o) => o.maps || [])]) if (m?.id && m.name && !mapNames.has(m.id)) mapNames.set(m.id, m.name);
+    }
+    const maps = [...new Set(tasks.flatMap(taskMapIds))].filter((id) => mapNames.has(id))
+      .map((id) => ({ id, name: mapNames.get(id) })).sort((a, b) => a.name.localeCompare(b.name));
     const summary = h("div.q-summary");
     const list = h("div.q-list");
     const profile = h("div.toolbar");
@@ -43,9 +50,10 @@ export default {
         const s = questState(t, ctx);
         if (state.status !== "all" && s !== state.status) return false;
         if (state.trader && t.trader?.id !== state.trader) return false;
-        if (state.map !== "all" && t.map?.id !== state.map && !(t.objectives || []).some((o) => (o.maps || []).some((m) => m.id === state.map))) return false;
+        if (state.map !== "all" && !taskMapIds(t).includes(state.map)) return false;
         if (state.kappa && !t.kappaRequired) return false;
         if (state.lightkeeper && !t.lightkeeperRequired) return false;
+        if (state.pinned && !(store.progress.pinned || []).includes(t.id)) return false;
         if (state.q) {
           const q = state.q.toLowerCase();
           const hay = [t.name, t.trader?.name, t.map?.name, ...(t.objectives || []).map((o) => o.description)].join(" ").toLowerCase();
@@ -78,7 +86,9 @@ export default {
         (v) => { state.status = v; state.shown = 60; redrawFilters(); draw(); }),
       select([["all", "All maps"], ...maps.map((m) => [m.id, m.name])], state.map, (v) => { state.map = v; draw(); }),
       toggle("Kappa", state.kappa, (v) => { state.kappa = v; draw(); }, "Only quests needed for the Kappa container"),
-      toggle("Lightkeeper", state.lightkeeper, (v) => { state.lightkeeper = v; draw(); }));
+      toggle("Lightkeeper", state.lightkeeper, (v) => { state.lightkeeper = v; draw(); }),
+      toggle("Pinned", state.pinned, (v) => { state.pinned = v; draw(); }, "Only quests pinned for your next raid"),
+      h("a.btn.ghost.small", { href: "#/raid" }, icon("raid", 15), h("span", "Raid plan")));
     const traderChips = h("div.filters");
     const redrawFilters = () => {
       const seg = filters.querySelector(".seg");
@@ -107,6 +117,11 @@ function questCard(t, ctx) {
     el.classList.toggle("open");
   };
   const done = s === "done";
+  const pinned = (store.progress.pinned || []).includes(t.id);
+  const pin = done ? null : h("button.pin-btn" + (pinned ? ".on" : ""), {
+    type: "button", title: pinned ? "Unpin from the raid plan" : "Pin for your next raid",
+    onclick: (e) => { e.stopPropagation(); setProgress({ op: "pin", ids: [t.id], pinned: !pinned }); },
+  }, icon("pin", 16));
   const action = done
     ? button("Undo", (e) => { e.stopPropagation(); finish(t, ctx, false); }, { kind: "ghost small", iconName: "x" })
     : button("Done", (e) => { e.stopPropagation(); finish(t, ctx, true); }, { kind: "good small", iconName: "check" });
@@ -124,6 +139,7 @@ function questCard(t, ctx) {
           t.map ? h("span", t.map.name) : null,
           t.experience ? h("span", `${fmt.num(t.experience)} XP`) : null)),
       h("span.state-pill." + s, s === "available" ? "Available" : s === "done" ? "Done" : "Locked"),
+      pin,
       action,
       icon("chevron", 18, "q-chev")),
     h("div.q-body", details(t, ctx)));
@@ -147,23 +163,15 @@ function questCard(t, ctx) {
 }
 
 function details(t, ctx) {
-  const objectives = (t.objectives || []).map((o) => {
-    const items = objectiveItems(o);
-    const keys = (o.requiredKeys || []).flat().filter(Boolean);
-    return h("li.obj" + (o.optional ? ".optional" : ""),
-      h("span.obj-dot"),
-      h("div",
-        h("div.obj-text", o.description, o.optional ? h("span.muted", " (optional)") : null,
-          o.foundInRaid ? h("span.fir", "FiR") : null),
-        items.length ? h("div.obj-items", items.slice(0, 8).map((it) => itemChip(it, o.count > 1 ? o.count : null, { compact: true }))) : null,
-        keys.length ? h("div.obj-items", h("span.muted.small", "Keys:"), keys.map((k) => itemChip(k, null, { compact: true }))) : null));
-  });
+  const objectives = (t.objectives || []).map((o) => objectiveView(o, t));
   const reqs = (t.taskRequirements || []).filter((r) => r.task);
   const rw = t.finishRewards || {};
   return h("div.q-cols",
     h("div",
       h("div.section-title", "Objectives"),
       h("ul.obj-list", objectives),
+      neededKeysView(t),
+      failView(t),
       reqs.length ? h("div", { style: { marginTop: "14px" } }, h("div.section-title", "Comes after"),
         h("div.tag-list", reqs.map((r) => h("a.tag" + (ctx.done.has(r.task.id) ? ".done" : ""),
           { href: `#/quests?q=${encodeURIComponent(r.task.name)}` },

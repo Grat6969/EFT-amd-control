@@ -290,29 +290,77 @@ class Source:
 
 # -- datasets, in the shapes of the app's GraphQL queries ---------------------------------------
 
+def _id(value):
+    return value.get("id") if isinstance(value, dict) else value
+
+
+# Objective fields that are plain values in both the files and GraphQL.
+OBJECTIVE_VALUES = ("count", "foundInRaid", "targetNames", "exitName", "exitStatus", "playerLevel", "shotType",
+                    "bodyParts", "timeFromHour", "timeUntilHour", "distance", "playerHealthEffect",
+                    "enemyHealthEffect", "healthEffect", "dogTagLevel", "minDurability", "maxDurability",
+                    "compareMethod", "value", "status", "stationLevel")
+
+
 def _objective(o: dict, src: Source) -> dict:
     out = {"id": o.get("id"), "type": o.get("type"), "description": o.get("description"),
            "optional": bool(o.get("optional")), "maps": [src.map(m) for m in o.get("maps") or [] if m]}
-    for key in ("count", "foundInRaid", "targetNames", "exitName", "playerLevel"):
+    for key in OBJECTIVE_VALUES:
         if key in o:
             out[key] = o[key]
     if o.get("items"):
-        out["items"] = [src.item(i) for i in o["items"] if i]
+        out["items"] = [src.item(_id(i)) for i in o["items"] if i]
     if o.get("requiredKeys"):
-        out["requiredKeys"] = [[src.item(k) for k in group if k] for group in o["requiredKeys"] if group]
+        out["requiredKeys"] = [[src.item(_id(k)) for k in group if k] for group in o["requiredKeys"] if group]
     if o.get("questItem"):
-        out["questItem"] = src.quest_item(o["questItem"])
+        out["questItem"] = src.quest_item(_id(o["questItem"]))
     if o.get("markerItem"):
-        out["markerItem"] = src.item(o["markerItem"])
+        out["markerItem"] = src.item(_id(o["markerItem"]))
     if o.get("item"):
-        out["item"] = src.item(o["item"])
+        out["item"] = src.item(_id(o["item"]))
     if o.get("useAny"):
-        out["useAny"] = [src.item(i) for i in o["useAny"] if i]
+        out["useAny"] = [src.item(_id(i)) for i in o["useAny"] if i]
     if o.get("skill"):
         out["skillLevel"] = {"name": o["skill"], "level": o.get("level")}
     if o.get("trader"):
-        out["trader"] = src.trader(o["trader"])
+        out["trader"] = src.trader(_id(o["trader"]))
         out["level"] = o.get("level")
+    if o.get("task"):
+        out["task"] = src.task(_id(o["task"]))
+    if o.get("station") or o.get("hideoutStation"):
+        out["hideoutStation"] = src.station(_id(o.get("station") or o.get("hideoutStation")))
+    # Where: zones (with names, which the files keep on the zones) and quest item spots.
+    zones = [z for z in o.get("zones") or [] if isinstance(z, dict)]
+    if zones:
+        out["zones"] = [{"id": z.get("id"), "map": {"id": _id(z.get("map"))} if z.get("map") else None} for z in zones]
+    names = list(o.get("zoneNames") or [])
+    for z in zones:
+        if z.get("name") and z["name"] not in names:
+            names.append(z["name"])
+    if names:
+        out["zoneNames"] = names
+    if o.get("possibleLocations"):
+        out["possibleLocations"] = [{"map": {"id": _id(loc.get("map"))}} for loc in o["possibleLocations"]
+                                    if isinstance(loc, dict) and loc.get("map")]
+    # How: weapon, gear and build requirements.
+    if o.get("usingWeapon"):
+        out["usingWeapon"] = [src.item(_id(w)) for w in o["usingWeapon"] if w]
+    if o.get("usingWeaponMods"):
+        out["usingWeaponMods"] = [[src.item(_id(m)) for m in group if m] for group in o["usingWeaponMods"] if group]
+    if o.get("wearing"):
+        out["wearing"] = [[src.item(_id(w)) for w in (group if isinstance(group, list) else [group]) if w]
+                          for group in o["wearing"] if group]
+    if o.get("notWearing"):
+        out["notWearing"] = [src.item(_id(w)) for w in o["notWearing"] if w]
+    if o.get("buildAttributes") or o.get("attributes"):
+        attrs = o.get("buildAttributes") or o.get("attributes")
+        out["attributes"] = ([{"name": k, "requirement": v} for k, v in attrs.items()] if isinstance(attrs, dict)
+                             else [a for a in attrs if isinstance(a, dict)])
+    if o.get("containsAll"):
+        out["containsAll"] = [src.item(_id(i)) for i in o["containsAll"] if i]
+    if o.get("containsCategory"):
+        categories = src.item_file()["categories"]
+        out["containsCategory"] = [{"name": c.get("name") if isinstance(c, dict) else categories.get(c, c)}
+                                   for c in o["containsCategory"] if c]
     return out
 
 
@@ -351,6 +399,10 @@ def tasks(client: TarkovClient) -> List[dict]:
                                  "compareMethod": r.get("compareMethod"), "value": r.get("value")}
                                 for r in t.get("traderRequirements") or []],
             objectives=[_objective(o, src) for o in t.get("objectives") or [] if isinstance(o, dict)],
+            failConditions=[_objective(o, src) for o in t.get("failConditions") or [] if isinstance(o, dict)],
+            neededKeys=[{"keys": [src.item(_id(k)) for k in nk.get("keys") or nk.get("key_ids") or [] if k],
+                         "map": src.map(_id(nk.get("map") or nk.get("map_id")))}
+                        for nk in t.get("neededKeys") or [] if isinstance(nk, dict)],
             finishRewards=_rewards(t.get("finishRewards"), src),
         )
         out.append(task)

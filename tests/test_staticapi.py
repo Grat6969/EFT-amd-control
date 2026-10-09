@@ -30,10 +30,19 @@ def files():
             "taskImageLink": "debut.webp", "minPlayerLevel": 1, "kappaRequired": True, "lightkeeperRequired": False,
             "factionName": "Any", "restartable": False, "trader": "prapor", "map": "customs",
             "taskRequirements": [], "traderRequirements": [],
+            "neededKeys": [{"map": "customs", "keys": ["key-dorm"]}],
             "objectives": [
                 {"id": "obj-shoot", "type": "shoot", "description": "obj-shoot", "optional": False, "maps": ["customs"],
-                 "count": 5, "targetNames": ["Savage"], "bodyParts": ["Head"],
+                 "count": 5, "targetNames": ["Savage"], "bodyParts": ["Head"], "shotType": "kill",
+                 "distance": {"compareMethod": ">=", "value": 50}, "timeFromHour": 22, "timeUntilHour": 5,
+                 "usingWeapon": ["ammo-ps"], "usingWeaponMods": [["marker"]], "wearing": [[{"id": "key-dorm"}]],
+                 "notWearing": [{"id": "marker"}],
+                 "zones": [{"id": "zone-dorms", "map": "customs", "name": "zone-dorms", "position": {"x": 1, "y": 2, "z": 3}}],
                  "healthEffect": {"bodyParts": ["Chest"], "effects": ["Fracture"]}},
+                {"id": "obj-extract", "type": "extract", "description": "obj-extract", "optional": False,
+                 "maps": ["customs"], "count": 1, "exitStatus": ["Survived", "Runner"], "exitName": "ex1 key"},
+                {"id": "obj-find", "type": "findQuestItem", "description": "obj-find", "optional": False, "maps": [],
+                 "questItem": "folder", "possibleLocations": [{"map": "customs", "positions": [{"x": 1, "y": 0, "z": 2}]}]},
                 {"id": "obj-give", "type": "giveItem", "description": "obj-give", "optional": False, "count": 2,
                  "foundInRaid": True, "items": ["ledx"]},
                 {"id": "obj-mark", "type": "mark", "description": "obj-mark", "optional": True, "maps": ["customs"],
@@ -45,7 +54,9 @@ def files():
                 {"id": "obj-ll", "type": "traderLevel", "description": "obj-ll", "optional": False,
                  "trader": "therapist", "level": 2},
             ],
-            "failConditions": [], "startRewards": copy.deepcopy(no_rewards), "failureOutcome": copy.deepcopy(no_rewards),
+            "failConditions": [{"id": "fail-1", "type": "taskStatus", "description": "fail-1", "optional": False,
+                                "task": "shortage", "status": ["fail"]}],
+            "startRewards": copy.deepcopy(no_rewards), "failureOutcome": copy.deepcopy(no_rewards),
             "finishRewards": {
                 **copy.deepcopy(no_rewards),
                 "traderStanding": [{"trader": "prapor", "standing": 0.02}],
@@ -148,6 +159,8 @@ def files():
                                                        "adjustedPlayersCompletedPercent": 55.1, "imageLink": "a.webp"}},
                               "prestige": []},
                              "$.data.tasks.*.name", "$.data.tasks.*.objectives[*].description",
+                             "$.data.tasks.*.objectives[*].exitName", "$.data.tasks.*.objectives[*].exitStatus[*]",
+                             "$.data.tasks.*.objectives[*].zones[*].name", "$.data.tasks.*.failConditions[*].description",
                              "$.data.tasks.*.objectives[*].targetNames[*]", "$.data.tasks.*.objectives[*]..bodyParts[*]",
                              "$.data.tasks.*.objectives[*]['healthEffect','playerHealthEffect','enemyHealthEffect'].effects[*]",
                              "$.data.questItems.*.name", "$.data.questItems.*.shortName", "$.data.achievements.*.name",
@@ -157,6 +170,9 @@ def files():
                                  "obj-skill": "Reach Endurance 3", "obj-ll": "Therapist LL2", "Savage": "Scav",
                                  "Head": "Head", "Chest": "Thorax", "Fracture": "Fracture", "folder name": "Secure folder",
                                  "folder short": "Folder", "ach name": "Welcome", "ach description": "Finish a raid",
+                                 "obj-extract": "Survive and extract", "obj-find": "Find the folder", "ex1 key": "Crossroads",
+                                 "Survived": "Survived", "Runner": "Run through", "zone-dorms": "Dorms",
+                                 "fail-1": "Shortage must not fail",
                                  "Pmc": "PMC", "rarity key": "Common"}),
         "regular/items": doc({"items": items, "itemCategories": {"cat-meds": {"id": "cat-meds", "name": "cat-meds name"},
                                                                  "cat-item": {"id": "cat-item", "name": "cat-item name"}},
@@ -258,9 +274,21 @@ def test_tasks():
     assert debut["name"] == "Debut" and debut["kappaRequired"] is True and debut["experience"] == 1700
     assert debut["trader"] == {"id": "prapor", "name": "Prapor", "normalizedName": "prapor", "imageLink": "prapor.webp"}
     assert debut["map"] == {"id": "customs", "name": "Customs", "normalizedName": "customs"}
-    shoot, give, mark, quest, skill, ll = debut["objectives"]
+    shoot, extract, find, give, mark, quest, skill, ll = debut["objectives"]
     assert shoot["description"] == "Kill 5 Scavs" and shoot["targetNames"] == ["Scav"] and shoot["count"] == 5
     assert shoot["maps"] == [{"id": "customs", "name": "Customs", "normalizedName": "customs"}]
+    assert shoot["shotType"] == "kill" and shoot["bodyParts"] == ["Head"] and shoot["distance"]["value"] == 50
+    assert (shoot["timeFromHour"], shoot["timeUntilHour"]) == (22, 5)
+    assert shoot["zones"] == [{"id": "zone-dorms", "map": {"id": "customs"}}] and shoot["zoneNames"] == ["Dorms"]
+    assert shoot["usingWeapon"] == [PS] and shoot["usingWeaponMods"][0][0]["id"] == "marker"
+    assert shoot["wearing"][0][0]["name"] == "Dorm room 314 marked key" and shoot["notWearing"][0]["id"] == "marker"
+    assert extract["exitStatus"] == ["Survived", "Run through"] and extract["exitName"] == "Crossroads"
+    assert find["questItem"]["name"] == "Secure folder" and find["possibleLocations"] == [{"map": {"id": "customs"}}]
+    assert debut["neededKeys"] == [{"keys": [ref("key-dorm", "Dorm room 314 marked key", "314", None)],
+                                    "map": {"id": "customs", "name": "Customs", "normalizedName": "customs"}}]
+    assert debut["failConditions"] == [{"id": "fail-1", "type": "taskStatus", "description": "Shortage must not fail",
+                                        "optional": False, "maps": [], "status": ["fail"],
+                                        "task": {"id": "shortage", "name": "Shortage"}}]
     assert give["items"] == [LEDX] and give["foundInRaid"] is True and give["count"] == 2 and give["maps"] == []
     assert mark["markerItem"] == ref("marker", "MS2000 Marker", "MS2000", None) and mark["optional"] is True
     assert mark["requiredKeys"] == [[ref("key-dorm", "Dorm room 314 marked key", "314", None)]]
@@ -435,5 +463,5 @@ def test_records_kept_in_lists_work_too():
     client = StaticClient(data=data)
     debut = next(t for t in staticapi.tasks(client) if t["id"] == "debut")
     assert debut["trader"]["name"] == "Prapor"
-    assert debut["objectives"][3]["questItem"]["name"] == "Secure folder"
+    assert debut["objectives"][5]["questItem"]["name"] == "Secure folder"
     assert staticapi.maps(client)[0]["bosses"][0]["boss"]["name"] == "Reshala"

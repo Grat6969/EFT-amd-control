@@ -184,7 +184,7 @@ class GameLink:
                 return
             for m in self.data_for(ev.mode or self.cfg.game_mode, "maps", fetch=True) or []:
                 if (m.get("nameId") or "").lower() == (ev.data.get("map") or "").lower():
-                    payload.update(name=m["name"], normalizedName=m["normalizedName"])
+                    payload.update(name=m["name"], normalizedName=m["normalizedName"], mapId=m.get("id"))
                     break
             payload["autoMap"] = self.cfg.logs.auto_map
         elif ev.kind == "flea":

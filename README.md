@@ -9,6 +9,8 @@ An all-in-one helper for **Escape from Tarkov** on Windows:
   available next and every item you still need (and what it costs to buy). Optionally
   let it **follow Tarkov's own log files** to tick quests off as you finish them, and
   **import your progress from TarkovTracker**.
+- **Raid plan**: pin the quests you're doing this raid and see what to bring, what to look
+  for, and how and where to do each objective, without opening the wiki.
 - **In-game price check**: hover over an item and press `Ctrl+Alt+P`.
 - **Automatic AMD display settings** while Tarkov is focused (saturation, brightness,
   contrast, gamma), with an optional boost when you walk into dark areas.
@@ -53,7 +55,8 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Barters** | Every trader barter with cost, value and profit at today's prices |
 | **Crafts** | Hideout crafts ranked by profit per hour; filter to stations you've built |
 | **Ammo** | Damage vs penetration chart per caliber, full stats, a rough armor-class guide, prices |
-| **Quests** | All quests with objectives, rewards and prerequisites. Filter by available / locked / done, trader, map, Kappa or Lightkeeper. Marking a quest done also marks every quest before it (with Undo) |
+| **Quests** | All quests with objectives, rewards and prerequisites, and how and where to do each objective. Filter by available / locked / done / pinned, trader, map, Kappa or Lightkeeper. Pin quests for your next raid. Marking a quest done also marks every quest before it (with Undo) |
+| **Raid plan** | The quests you pinned, for the map you're going to: keys and items to take, what to look for, each objective's how and where with a tick box or counter, and other quests you could do on that map |
 | **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
 | **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
 | **Achievements** | All achievements with rarity and how many players have them; tick off yours |
@@ -66,6 +69,28 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 Progress is saved on your PC, separately for PvP and PvE. **Settings → Backup** exports
 it to a file.
 
+## Raid plan
+
+A map can have 15 open quests when you only mean to do three of them this raid.
+
+1. On **Quests**, press the pin button on the quests you're going for (the **Pinned**
+   filter shows them).
+2. Open **Raid plan** and pick the map you're going to. It shows only the pinned quests
+   with something to do on that map (or on any map), and:
+   - **Take with you**: keys, markers, items to place or use, and the weapon or gear an
+     objective asks for.
+   - **Look for in raid**: quest items and found-in-raid items.
+   - Each objective spelled out: what to kill, find, place or mark; the map and area; the
+     key it needs; time of day, range, weapon, gear you must or mustn't wear; how you must
+     extract. **Show the spot on tarkov.dev's map** opens tarkov.dev's interactive map
+     with the place highlighted.
+   - Other quests you could do on the same map, with a **Pin** button.
+3. Tick objectives off as you go (kills and similar have a counter). **Done** finishes the
+   quest (with Undo); finished quests drop off the plan by themselves.
+
+The same how-and-where details are on every quest on the **Quests** page. With the game log
+reader on, loading into a raid opens the raid plan for that map.
+
 ## Automatic progress (optional)
 
 Both are in **Settings** and are off until you set them up.
@@ -76,7 +101,8 @@ Tarkov writes plain-text log files to the `Logs` folder in its install folder. W
 **Read Tarkov's log files** on, the app follows the current session's logs and:
 
 - marks a quest done the moment you finish it (and every quest before it),
-- switches to the map page when you load into a raid (you can turn that off),
+- opens your raid plan when you load into a map with pinned quests, otherwise that map's
+  page (you can turn that off),
 - shows flea market sales,
 - warns you if Tarkov is in PvE but the app is showing PvP (or the other way round).
 

@@ -221,6 +221,8 @@ def quest(n, name, trader, level, prereq=None, kappa=True, lk=False, objectives=
                               "status": ["complete"]} for p in (prereq or [])],
         "traderRequirements": [],
         "objectives": list(objectives),
+        "failConditions": [],
+        "neededKeys": [{"keys": group, "map": (o["maps"] or [None])[0]} for o in objectives for group in o.get("requiredKeys") or []],
         "finishRewards": rewards or {"items": [contained("Salewa", 2)], "traderStanding": [{"trader": {"id": T[trader]["id"], "name": trader}, "standing": 0.02}],
                                      "offerUnlock": [], "skillLevelReward": [], "traderUnlock": [], "craftUnlock": []},
     }
@@ -239,18 +241,40 @@ def basic(desc, map_=None, type_="visit", keys=()):
             "maps": [MAPS_MIN[map_]] if map_ else [], "requiredKeys": [[ref(k)] for k in keys]}
 
 
-def shoot(desc, count, map_=None):
+def shoot(desc, count, map_=None, targets=("Scav",), **extra):
     return {"id": oid(rnd.randrange(1 << 30)), "type": "shoot", "optional": False, "description": desc,
-            "maps": [MAPS_MIN[map_]] if map_ else [], "count": count, "targetNames": ["Scav"]}
+            "maps": [MAPS_MIN[map_]] if map_ else [], "count": count, "targetNames": list(targets), "shotType": "kill",
+            "bodyParts": [], "zoneNames": [], "requiredKeys": [], **extra}
+
+
+def zone(name, map_):
+    return {"id": "zone-" + name.lower().replace(" ", "-"), "map": {"id": MAPS_MIN[map_]["id"]}}
+
+
+def qitem(name, short, hue):
+    return {"id": oid(7000 + hue), "name": name, "shortName": short, "iconLink": svg_icon(short, hue)}
+
+
+FOLDER = qitem("Secure folder 0031", "Folder", 40)
+WATCH = qitem("Bronze pocket watch", "Watch", 80)
 
 
 quest(0, "Debut", "Prapor", 1, objectives=[shoot("Eliminate 5 Scavs all over the Tarkov territory", 5), give("Tushonka", 2, False)], map_=None)
-quest(1, "Checking", "Prapor", 2, [0], objectives=[basic("Locate the bronze pocket watch in the truck on Customs", "customs"), give("Tetriz", 1, False)], map_="customs")
+quest(1, "Checking", "Prapor", 2, [0], objectives=[
+    {**basic("Locate and obtain the bronze pocket watch on Customs", "customs", "findQuestItem"), "questItem": WATCH, "count": 1,
+     "possibleLocations": [{"map": {"id": MAPS_MIN["customs"]["id"]}}]},
+    {**basic("Hand over the pocket watch", None, "giveQuestItem"), "questItem": WATCH, "count": 1}], map_="customs")
 quest(2, "Shootout Picnic", "Prapor", 4, [0], objectives=[shoot("Eliminate 15 Scavs on Woods", 15, "woods")], map_="woods")
-quest(3, "Delivery from the Past", "Prapor", 6, [1], objectives=[basic("Stash the secure folder in the Tarcone office on Customs", "customs", "plant"), basic("Survive and extract from Customs", "customs", "extract")], map_="customs")
+quest(3, "Delivery from the Past", "Prapor", 6, [1], objectives=[
+    {**basic("Stash the secure folder in the Tarcone office on Customs", "customs", "plantQuestItem"), "questItem": FOLDER,
+     "zones": [zone("Tarcone office", "customs")], "zoneNames": []},
+    {**basic("Survive and extract from Customs", "customs", "extract"), "count": 1, "exitStatus": ["Survived"], "exitName": None, "zoneNames": []}],
+    map_="customs")
 quest(4, "Shortage", "Therapist", 1, objectives=[give("Salewa", 3), give("Water", 2, False)])
 quest(5, "Sanitary Standards - Part 1", "Therapist", 4, [4], objectives=[basic("Obtain the package of graphics cards on Customs", "customs"), give("GasAn", 1)], map_="customs")
-quest(6, "Operation Aquarius - Part 1", "Therapist", 5, [4], objectives=[basic("Locate the hidden water stash on Customs", "customs", keys=["206"]), give("Water", 4, False)], map_="customs")
+quest(6, "Operation Aquarius - Part 1", "Therapist", 5, [4], objectives=[
+    {**basic("Locate the hidden water stash on Customs", "customs", keys=["206"]), "zones": [zone("Dorms 206", "customs")]},
+    give("Water", 4, False)], map_="customs")
 quest(7, "Painkiller", "Therapist", 8, [5], objectives=[give("IFAK", 4), give("Propital", 1)])
 quest(8, "Private Clinic", "Therapist", 23, [7], objectives=[give("LEDX", 2), give("Salewa", 2)], lk=True)
 quest(9, "Health Care Privacy - Part 1", "Therapist", 9, [5], objectives=[basic("Find the ambulance on Woods", "woods")], map_="woods")
@@ -259,17 +283,27 @@ quest(10, "Gunsmith - Part 1", "Mechanic", 2, objectives=[{"id": oid(9901), "typ
 quest(11, "Introduction", "Mechanic", 3, [10], objectives=[give("Drill", 1), give("Toolset", 1)])
 quest(12, "Signal - Part 1", "Mechanic", 8, [11], objectives=[give("GPU", 1), give("CPU Fan", 3), give("PCB", 2)])
 quest(13, "Farming - Part 1", "Mechanic", 12, [11], objectives=[give("Wires", 5), give("Bolts", 4)], map_="factory")
-quest(14, "Bad Rep Evidence", "Skier", 5, objectives=[basic("Obtain the secure folder 0031 on Customs", "customs", keys=["314"])], map_="customs")
+quest(14, "Bad Rep Evidence", "Skier", 5, objectives=[
+    {**basic("Obtain the secure folder 0031 on Customs", "customs", "findQuestItem", keys=["314"]), "questItem": FOLDER, "count": 1,
+     "possibleLocations": [{"map": {"id": MAPS_MIN["customs"]["id"]}}]},
+    {**basic("Hand over the folder", None, "giveQuestItem"), "questItem": FOLDER, "count": 1}], map_="customs")
 quest(15, "Supplier", "Skier", 4, objectives=[give("PACA", 1, False), give("AK-74N", 1, False)])
 quest(16, "Chumming", "Skier", 7, [14], objectives=[{"id": oid(9902), "type": "mark", "optional": False, "maps": [MAPS_MIN["customs"]],
-      "description": "Mark the dorms with an MS2000 Marker", "markerItem": ref("MS2000"), "requiredKeys": []}], map_="customs")
+      "description": "Mark the dorms with an MS2000 Marker", "markerItem": ref("MS2000"), "requiredKeys": [],
+      "zones": [zone("Dorms", "customs")]}], map_="customs")
 quest(17, "Fishing Gear", "Peacekeeper", 12, objectives=[basic("Hide a sniper rifle in the boat on Shoreline", "shoreline", "plant")], map_="shoreline")
-quest(18, "Wet Job - Part 1", "Peacekeeper", 18, [17], objectives=[shoot("Eliminate Scav snipers on Shoreline", 5, "shoreline")], map_="shoreline")
+quest(18, "Wet Job - Part 1", "Peacekeeper", 18, [17], objectives=[
+    shoot("Eliminate Scav snipers on Shoreline with a suppressed rifle", 5, "shoreline", ("Sniper Scavs",),
+          usingWeapon=[ref("AK-74N"), ref("M4A1")], distance={"compareMethod": ">=", "value": 60})], map_="shoreline")
 quest(19, "The Punisher - Part 1", "Prapor", 21, [2], objectives=[shoot("Eliminate 15 Scavs on Shoreline", 15, "shoreline")], map_="shoreline")
 quest(20, "Gratitude", "Jaeger", 6, objectives=[give("Moonshine", 1), give("Sugar", 3)], kappa=False)
-quest(21, "The Survivalist Path - Unprotected but Dangerous", "Jaeger", 8, objectives=[shoot("Eliminate Scavs without armor", 5, "woods")], map_="woods")
+quest(21, "The Survivalist Path - Unprotected but Dangerous", "Jaeger", 8, objectives=[
+    shoot("Eliminate Scavs on Woods while not wearing body armor, at night", 5, "woods", bodyParts=["Head"],
+          notWearing=[ref("PACA"), ref("6B43")], timeFromHour=22, timeUntilHour=5)], map_="woods")
 quest(22, "Out of Curiosity", "Ragman", 10, objectives=[give("Badge", 1)], kappa=False)
-quest(23, "The Huntsman Path - Secured Perimeter", "Jaeger", 14, objectives=[shoot("Eliminate PMCs on Factory", 8, "factory")], map_="factory")
+quest(23, "The Huntsman Path - Secured Perimeter", "Jaeger", 14, objectives=[
+    shoot("Eliminate PMCs in the office area on Factory", 8, "factory", ("PMC",), zoneNames=["Factory office"],
+          zones=[zone("Factory office", "factory")])], map_="factory")
 quest(24, "Long Road", "Ref", 25, [13], faction="USEC", objectives=[give("Rooster", 1)])
 quest(25, "Network Provider - Part 1", "Ref", 30, [12], lk=True, objectives=[give("WiFi Cam", 3), give("Intelligence", 2)])
 
@@ -501,3 +535,8 @@ if __name__ == "__main__":
     import sys
 
     main(int(sys.argv[1]) if len(sys.argv) > 1 else 47999)
+
+
+next(q for q in QUESTS if q["name"] == "Delivery from the Past")["failConditions"] = [
+    {"id": oid(9950), "type": "taskStatus", "optional": False, "maps": [], "description": "Fails if you lose the folder",
+     "task": {"id": oid(8014), "name": "Bad Rep Evidence"}, "status": ["fail"]}]
