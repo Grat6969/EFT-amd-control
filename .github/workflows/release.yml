@@ -24,8 +24,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: python -m pip install pytest
@@ -38,9 +38,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           architecture: x64
@@ -70,13 +70,19 @@ jobs:
           Get-ChildItem -Force | Where-Object { $_.Name -notin '.git', '.github', 'tests', 'docs', 'dist', 'pytest.ini', '.gitignore' } |
             Copy-Item -Destination $app -Recurse
 
-          # Python: the official python.org build setup-python installed, trimmed.
+          # Python: the official python.org build setup-python installed, trimmed to
+          # what the app uses. Its site-packages starts over with just pip: the
+          # runner's copy also has its installer and tools such as pipx.
           $pyHome = Split-Path (Get-Command python).Source
           $py = Join-Path $app 'python'
           Copy-Item $pyHome $py -Recurse
-          foreach ($sub in 'Doc', 'include', 'libs', 'Scripts', 'Tools', 'NEWS.txt', 'Lib\test', 'Lib\idlelib', 'Lib\turtledemo', 'Lib\ensurepip', 'Lib\tkinter\test') {
+          Remove-Item (Join-Path $py 'python-*.exe') -Force
+          foreach ($sub in 'Doc', 'include', 'libs', 'Scripts', 'Tools', 'share', 'NEWS.txt', 'Lib\test', 'Lib\idlelib', 'Lib\turtledemo', 'Lib\ensurepip', 'Lib\lib2to3', 'Lib\pydoc_data', 'Lib\tkinter\test', 'tcl\tix8.4.3', 'DLLs\_test*.pyd', 'DLLs\xxlimited*.pyd') {
             Remove-Item (Join-Path $py $sub) -Recurse -Force -ErrorAction SilentlyContinue
           }
+          Get-ChildItem (Join-Path $py 'Lib\site-packages') |
+            Where-Object { $_.Name -ne 'pip' -and $_.Name -notlike 'pip-*.dist-info' -and $_.Name -ne 'README.txt' } |
+            Remove-Item -Recurse -Force
           & "$py\python.exe" -m pip install --disable-pip-version-check --no-warn-script-location -r requirements.txt
           if ($LASTEXITCODE) { throw 'Installing the packages failed' }
 
@@ -105,6 +111,8 @@ jobs:
           print(sys.version)
           print("prefix", sys.prefix)
           assert "unzipped" in sys.prefix, "not the bundled Python"
+          extra = [f for f in os.listdir(sys.prefix) if f.startswith("python-") and f.endswith(".exe")]
+          assert not extra, f"installer left in: {extra}"
           import tarkov_display, tarkov_display.cli, tarkov_display.ocr, tarkov_display.popup
           print("RaidReady", tarkov_display.__version__, "from", os.path.dirname(tarkov_display.__file__))
           assert "unzipped" in tarkov_display.__file__
