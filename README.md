@@ -1,6 +1,6 @@
 # RaidReady
 
-**A free, open-source companion for Escape from Tarkov on Windows.** Pin the quests
+**A free companion for Escape from Tarkov on Windows, with all its code on GitHub.** Pin the quests
 you're doing this raid and see what to bring and where to go, check any item's price
 with one hotkey, follow every quest without opening the wiki, and get a clearer picture
 in dark areas on AMD cards.
@@ -276,7 +276,7 @@ What RaidReady does, and doesn't do:
   tracking.
 
 Nobody but Battlestate Games can promise that a third-party tool won't get you banned, and
-their rules can change. Use it at your own risk. It's open source, so you or anyone else
+their rules can change. Use it at your own risk. The code is on GitHub, so you or anyone else
 can check every line.
 
 ## Command line
