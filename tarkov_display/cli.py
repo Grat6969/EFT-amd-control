@@ -182,8 +182,8 @@ def cmd_restore(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="tarkov-display",
-        description="Tarkov Companion: tarkov.dev prices, quests, hideout and maps, plus automatic AMD "
-                    "display settings for Escape from Tarkov.",
+        description="RaidReady: raid plans, quests, prices, hideout and maps from tarkov.dev, plus automatic "
+                    "AMD display settings for Escape from Tarkov.",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command")
@@ -238,11 +238,11 @@ def main(argv=None) -> int:
     try:
         return func(args)
     except Exception as exc:
-        log.exception("Tarkov Companion stopped because of an error")
+        log.exception("RaidReady stopped because of an error")
         if sys.platform == "win32" and sys.stderr is None:  # no console to show it in
             ctypes.windll.user32.MessageBoxW(
-                None, f"Tarkov Companion stopped because of an error:\n\n{exc}\n\nDetails are in {log_file}",
-                "Tarkov Companion", 0x10)  # MB_ICONERROR
+                None, f"RaidReady stopped because of an error:\n\n{exc}\n\nDetails are in {log_file}",
+                "RaidReady", 0x10)  # MB_ICONERROR
             return 1
         raise
 

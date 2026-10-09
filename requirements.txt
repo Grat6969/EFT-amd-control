@@ -1,5 +1,5 @@
 # Windows built-in OCR, used by the Ctrl+Alt+P price check.
-# Everything else in Tarkov Companion uses only the Python standard library.
+# Everything else in RaidReady uses only the Python standard library.
 winrt-runtime; sys_platform == "win32"
 winrt-Windows.Foundation; sys_platform == "win32"
 winrt-Windows.Foundation.Collections; sys_platform == "win32"

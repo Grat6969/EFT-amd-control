@@ -44,7 +44,7 @@ def app_dir() -> Path:
 
 
 def _download(url: str, timeout: float = 60) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": f"TarkovCompanion/{__version__}"})
+    req = urllib.request.Request(url, headers={"User-Agent": f"RaidReady/{__version__}"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read()
 
@@ -157,7 +157,7 @@ class Updater:
                 (root / name).unlink()
             except OSError:
                 pass
-        for cache in root.rglob("__pycache__"):
+        for cache in package.rglob("__pycache__"):  # not the bundled Python's
             shutil.rmtree(cache, ignore_errors=True)
         new_requirements = (root / "requirements.txt").read_bytes() if (root / "requirements.txt").exists() else b""
         if new_requirements != old_requirements:

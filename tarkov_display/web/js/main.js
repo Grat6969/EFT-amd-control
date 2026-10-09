@@ -24,7 +24,7 @@ function logo() {
       h("polygon", { points: "16,2 28,9 28,23 16,30 4,23 4,9", fill: "none", stroke: "var(--accent)", "stroke-width": 2 }),
       h("circle", { cx: 16, cy: 16, r: 5, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }),
       h("path", { d: "M16 7v5M16 20v5M7 16h5M20 16h5", stroke: "var(--accent)", "stroke-width": 2, "stroke-linecap": "round" })),
-    h("div.logo-text", h("div.logo-name", "TARKOV"), h("div.logo-sub", "COMPANION")));
+    h("div.logo-text", h("div.logo-name", "RAIDREADY"), h("div.logo-sub", "FOR TARKOV")));
 }
 
 function shell() {
@@ -133,7 +133,7 @@ async function route() {
   const view = mod.default;
   titleEl.textContent = view.title;
   subEl.textContent = view.subtitle || "";
-  document.title = `${view.title} · Tarkov Companion`;
+  document.title = `${view.title} · RaidReady`;
   const root = h("div.view.view-" + name);
   mount(content, root);
   content.scrollTop = 0;

@@ -62,7 +62,7 @@ class TrackerClient:
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json",
-            "User-Agent": f"TarkovCompanion/{__version__}",
+            "User-Agent": f"RaidReady/{__version__}",
         }
         data = None
         if body is not None:

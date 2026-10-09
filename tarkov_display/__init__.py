@@ -1,5 +1,5 @@
-"""Tarkov Companion: prices, quests, hideout, maps and more from tarkov.dev,
-plus automatic AMD display settings for Escape from Tarkov."""
+"""RaidReady: a companion for Escape from Tarkov. Raid plans, quests, prices,
+hideout and maps from tarkov.dev, plus automatic AMD display settings."""
 
-__version__ = "1.3.0"
-APP_NAME = "Tarkov Companion"
+__version__ = "1.4.0"
+APP_NAME = "RaidReady"

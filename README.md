@@ -1,7 +1,20 @@
-# Tarkov Companion
+# RaidReady
 
-An all-in-one helper for **Escape from Tarkov** on Windows:
+**A free, open-source companion for Escape from Tarkov on Windows.** Pin the quests
+you're doing this raid and see what to bring and where to go, check any item's price
+with one hotkey, follow every quest without opening the wiki, and get a clearer picture
+in dark areas on AMD cards.
 
+**[Download RaidReady for Windows](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReady-windows.zip)**: unzip it and double-click `run.bat`.
+Nothing else to install.
+
+![RaidReady: raid plan, quest how and where, price check hotkey, AMD display boost](docs/raidready-card.png)
+
+- **Raid plan**: a map can have 15 open quests when you only mean to do three. Pin those,
+  pick the map, and RaidReady lists the keys and items to take, what to look for, and how
+  and where to do each objective, with a tick box for each.
+- **Price check in game**: hover over an item and press `Ctrl+Alt+P` for its flea price,
+  best trader, price per slot, and whether your quests or hideout still need it.
 - **Everything from [tarkov.dev](https://tarkov.dev)** in one window: live flea and
   trader prices, quests, hideout, barters, crafts, ammo, maps, bosses, traders,
   achievements, server status and goon sightings.
@@ -9,25 +22,39 @@ An all-in-one helper for **Escape from Tarkov** on Windows:
   available next and every item you still need (and what it costs to buy). Optionally
   let it **follow Tarkov's own log files** to tick quests off as you finish them, and
   **import your progress from TarkovTracker**.
-- **Raid plan**: pin the quests you're doing this raid and see what to bring, what to look
-  for, and how and where to do each objective, without opening the wiki.
-- **In-game price check**: hover over an item and press `Ctrl+Alt+P`.
 - **Automatic AMD display settings** while Tarkov is focused (saturation, brightness,
-  contrast, gamma), with an optional boost when you walk into dark areas.
-- **One-click updates** from inside the app.
+  contrast, gamma), with an optional boost in dark areas.
+- **PvP and PvE**, and **one-click updates** from inside the app.
 
-It never touches the game's memory or process and never changes its files. The only
-game files it opens are Tarkov's log files, read-only, and only if you turn the log
-reader on.
+It never touches the game's memory or process and never changes the game's files. See
+[Is it safe?](#is-it-safe)
+
+RaidReady is a fan-made tool. It isn't made or endorsed by Battlestate Games or tarkov.dev.
 
 ## Install
+
+1. Download **[RaidReady-windows.zip](https://github.com/Grat6969/EFT-amd-control/releases/latest/download/RaidReady-windows.zip)**.
+2. Right-click the zip, choose **Properties**, tick **Unblock** and press OK (so Windows
+   doesn't warn about every file). Then unzip it somewhere you can write to, such as
+   Documents (not Program Files).
+3. Double-click `run.bat` in the RaidReady folder. The app opens in its own window.
+
+The zip comes with its own copy of Python (the official one from python.org), so there's
+nothing else to install. If Windows says "Windows protected your PC", click **More info**,
+then **Run anyway**: the app isn't signed by a company, but every line of it is in this
+repository.
+
+<details>
+<summary>Install with your own Python instead</summary>
 
 1. Install Python 3.9 or newer from [python.org](https://www.python.org/downloads/)
    (ticking "Add python.exe to PATH" is a good idea; the scripts also find Python
    through the `py` launcher the installer adds).
-2. Download this repository as a ZIP and unzip it anywhere.
+2. Download this repository as a ZIP (**Code → Download ZIP**) and unzip it anywhere.
 3. Double-click `install.bat` once (installs Windows' text recognition for the price check).
-4. Double-click `run.bat`. The app opens in its own window.
+4. Double-click `run.bat`.
+
+</details>
 
 The window is a local page shown by Microsoft Edge (which comes with Windows) in
 "app" mode, so it has no tabs or address bar. Closing it quits the app and puts
@@ -216,16 +243,33 @@ If a page says "Couldn't load this from tarkov.dev", their server is busy; the a
 the last data it had and retries on its own. **Settings → Data from tarkov.dev** shows
 when each part was last updated, the error if one failed, and refresh buttons.
 
-## Safety and privacy
+## Is it safe?
 
+What RaidReady does, and doesn't do:
+
+- It never reads or changes the game's memory, never injects anything into the game, and
+  never changes the game's files.
+- **Price check**: takes one screenshot around the mouse when you press `Ctrl+Alt+P` and
+  reads the item name with Windows' built-in text recognition, the way tools like
+  RatScanner do.
+- **Auto-boost** (off by default): looks at 5 small patches of the screen a few times a
+  second to tell when the scene is dark.
+- **Game log reader** (off by default): reads the text log files Tarkov writes, read-only.
+- **Display settings**: go through your AMD driver and the Windows gamma ramp, the same
+  settings AMD Software changes.
 - The app's window is served from your own PC (127.0.0.1) and only that window can use
   it: every request needs a random key created at start-up.
 - It only talks to tarkov.dev, GitHub (for updates and map/wipe data), the image hosts
-  used by tarkov.dev, and TarkovTracker if you add a token.
-- The game log reader (off by default) only reads Tarkov's log files.
-- It never reads or changes the game's memory or process, and never changes its files.
+  used by tarkov.dev, and TarkovTracker if you add a token. No accounts, no ads, no
+  tracking.
+
+Nobody but Battlestate Games can promise that a third-party tool won't get you banned, and
+their rules can change. Use it at your own risk. It's open source, so you or anyone else
+can check every line.
 
 ## Command line
+
+With the zip download, use `python\python.exe` in place of `python`.
 
 ```
 python -m tarkov_display              # open the app (same as run.bat)
@@ -240,7 +284,7 @@ python -m tarkov_display restore      # undo 'apply'
 
 ## Standalone .exe
 
-`build_exe.bat` builds `dist\TarkovCompanion.exe`. The .exe can't update itself; rebuild
+`build_exe.bat` builds `dist\RaidReady.exe`. The .exe can't update itself; rebuild
 it after updating the code.
 
 ## Development
@@ -254,3 +298,7 @@ python -m tests.demo        # run the app with made-up data on http://127.0.0.1:
 The tests use fake tarkov.dev responses, so they run on any OS without internet. Set
 `TARKOV_SCHEMA` to tarkov-api's `schema-static.mjs` to also check every query against
 tarkov.dev's schema.
+
+Raising `__version__` in `tarkov_display/__init__.py` on the default branch makes GitHub
+build `RaidReady-windows.zip` (the app plus its own Python) and publish it as a release:
+see `.github/workflows/release.yml`.

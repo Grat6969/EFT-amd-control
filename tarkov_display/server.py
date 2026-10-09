@@ -227,7 +227,7 @@ class Server:
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
-            server_version = "TarkovCompanion"
+            server_version = "RaidReady"
 
             def log_message(self, fmt, *args):  # quiet; errors are logged elsewhere
                 log.debug("http: " + fmt, *args)

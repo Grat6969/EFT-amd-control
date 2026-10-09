@@ -54,7 +54,7 @@ class TarkovClient:
 
         req.add_header("Accept", "application/json")
         req.add_header("Accept-Encoding", "gzip")
-        req.add_header("User-Agent", f"TarkovCompanion/{__version__}")
+        req.add_header("User-Agent", f"RaidReady/{__version__}")
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read()

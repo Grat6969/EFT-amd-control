@@ -1,0 +1,153 @@
+name: Release
+
+# Builds the one-click Windows download (the app plus its own copy of Python,
+# so players have nothing else to install) and publishes it as a GitHub
+# release whenever the version number changes on the default branch.
+# The download keeps a fixed name so this link always gets the newest one:
+# https://github.com/<owner>/<repo>/releases/latest/download/RaidReady-windows.zip
+
+on:
+  push:
+    paths:
+      - "tarkov_display/__init__.py"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest
+      - run: python -m pytest -q
+
+  release:
+    needs: test
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+
+      - name: Read the version
+        id: version
+        shell: pwsh
+        run: |
+          $version = python -c "import tarkov_display; print(tarkov_display.__version__)"
+          gh release view "v$version" --repo "${{ github.repository }}" *> $null
+          $released = $LASTEXITCODE -eq 0
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "released=$released" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $version, already released: $released"
+          exit 0
+
+      - name: Build RaidReady-windows.zip
+        if: steps.version.outputs.released != 'True'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $PWD 'dist'
+          $app = Join-Path $out 'RaidReady'
+          New-Item -ItemType Directory -Force $app | Out-Null
+
+          # The app: what the in-app updater downloads too, minus the tests.
+          Get-ChildItem -Force | Where-Object { $_.Name -notin '.git', '.github', 'tests', 'docs', 'dist', 'pytest.ini', '.gitignore' } |
+            Copy-Item -Destination $app -Recurse
+
+          # Python: the official python.org build setup-python installed, trimmed.
+          $pyHome = Split-Path (Get-Command python).Source
+          $py = Join-Path $app 'python'
+          Copy-Item $pyHome $py -Recurse
+          foreach ($sub in 'Doc', 'include', 'libs', 'Scripts', 'Tools', 'NEWS.txt', 'Lib\test', 'Lib\idlelib', 'Lib\turtledemo', 'Lib\ensurepip', 'Lib\tkinter\test') {
+            Remove-Item (Join-Path $py $sub) -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          & "$py\python.exe" -m pip install --disable-pip-version-check --no-warn-script-location -r requirements.txt
+          if ($LASTEXITCODE) { throw 'Installing the packages failed' }
+
+          # A ._pth file makes this Python ignore any other Python on the PC
+          # (registry, PYTHONPATH, PYTHONHOME) and puts the app folder on its path.
+          $tag = & "$py\python.exe" -c "import sys; print('%d%d' % sys.version_info[:2])"
+          Set-Content -Encoding ascii (Join-Path $py "python$tag._pth") '.', 'Lib', 'DLLs', '..', 'import site'
+
+          Compress-Archive -Path $app -DestinationPath (Join-Path $out 'RaidReady-windows.zip') -CompressionLevel Optimal
+          Get-Item (Join-Path $out 'RaidReady-windows.zip') | Format-Table Name, Length
+
+      - name: Check the download works on a clean PC
+        if: steps.version.outputs.released != 'True'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Unzip somewhere else and hide every other Python, like on a player's PC.
+          $test = Join-Path $env:RUNNER_TEMP 'unzipped'
+          Expand-Archive dist\RaidReady-windows.zip $test
+          $exe = Join-Path $test 'RaidReady\python\python.exe'
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
+          $env:PYTHONPATH = 'C:\nowhere'  # ignored thanks to the ._pth file
+          $check = Join-Path $env:RUNNER_TEMP 'check.py'
+          @'
+          import os, sys
+          print(sys.version)
+          print("prefix", sys.prefix)
+          assert "unzipped" in sys.prefix, "not the bundled Python"
+          import tarkov_display, tarkov_display.cli, tarkov_display.ocr, tarkov_display.popup
+          print("RaidReady", tarkov_display.__version__, "from", os.path.dirname(tarkov_display.__file__))
+          assert "unzipped" in tarkov_display.__file__
+          from winrt.windows.globalization import Language
+          from winrt.windows.graphics.imaging import BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap
+          from winrt.windows.media.ocr import OcrEngine
+          from winrt.windows.storage.streams import DataWriter
+          print("OCR engine:", OcrEngine.try_create_from_user_profile_languages() is not None)
+          import tkinter
+          print("Tcl", tkinter.Tcl().eval("info patchlevel"))
+          assert os.path.isdir(os.path.join(sys.prefix, "tcl", "tk8.6")), "Tk library missing"
+          try:
+              root = tkinter.Tk()
+              root.withdraw()
+              root.update()
+              root.destroy()
+              print("Tk window: ok")
+          except Exception as exc:
+              print("Tk window: not available here:", exc)
+          '@ | Set-Content -Encoding utf8 $check
+          Push-Location $env:RUNNER_TEMP
+          & $exe $check
+          if ($LASTEXITCODE) { throw 'The bundled app failed to start' }
+          & $exe -m tarkov_display --help
+          if ($LASTEXITCODE) { throw 'python -m tarkov_display failed' }
+          & $exe -m pip --version
+          if ($LASTEXITCODE) { throw 'pip is missing' }
+          Pop-Location
+
+      - name: Publish the release
+        if: steps.version.outputs.released != 'True'
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $notes = @"
+          **Download ``RaidReady-windows.zip`` below**, unzip it (Documents is a good place) and double-click ``run.bat``. The zip comes with its own Python, so there's nothing else to install.
+
+          Tip: right-click the zip, choose Properties, tick Unblock and press OK before unzipping, so Windows doesn't warn about each file.
+
+          Already using RaidReady? Press Update in the app instead. Your settings and progress are kept.
+
+          What it does, and how it stays clear of the game: see the [README](https://github.com/${{ github.repository }}#readme).
+          "@
+          $notes = ($notes -split "`n" | ForEach-Object { $_.Trim() }) -join "`n"
+          gh release create "v$version" dist\RaidReady-windows.zip --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "RaidReady $version" --notes $notes
+          if ($LASTEXITCODE) { throw 'Creating the release failed' }

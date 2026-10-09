@@ -164,7 +164,7 @@ export default {
           ext("https://tarkov.dev", "tarkov.dev"), ", a free, open-source community project. Map images are made by the artists credited on each map and hosted by tarkov.dev. The flea market fee formula is from tarkov.dev (MIT licence)."),
         h("p.muted.small", "Not affiliated with Battlestate Games. The app never touches the game's memory or changes its files: display changes go through your AMD driver and Windows, price checks read the screen only when you press the hotkey, and the optional log reader only reads Tarkov's log files."),
         h("div.toolbar", button("Quit the app", () => {
-          if (confirm("Quit Tarkov Companion? Display settings go back to normal.")) api("quit", { method: "POST", body: {} });
+          if (confirm("Quit RaidReady? Display settings go back to normal.")) api("quit", { method: "POST", body: {} });
         }, { kind: "ghost", iconName: "power" })))));
     drawProfile();
     drawUpdate();

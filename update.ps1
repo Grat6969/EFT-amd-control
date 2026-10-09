@@ -1,4 +1,4 @@
-# Updates Tarkov Companion to the latest version from GitHub.
+# Updates RaidReady to the latest version from GitHub.
 # Your profiles and settings live in %APPDATA%\TarkovDisplay and are not touched.
 
 $ErrorActionPreference = 'Stop'
@@ -10,13 +10,13 @@ $Package = Join-Path $AppDir 'tarkov_display'
 $Backup = Join-Path $AppDir 'tarkov_display.old'
 $Tmp = Join-Path ([IO.Path]::GetTempPath()) ('TarkovDisplay-update-' + [guid]::NewGuid())
 
-Write-Host "Updating Tarkov Companion in $AppDir"
+Write-Host "Updating RaidReady in $AppDir"
 Write-Host ''
 
 $running = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*tarkov_display*' -or $_.Name -in 'TarkovCompanion.exe', 'TarkovDisplay.exe' }
+    Where-Object { $_.CommandLine -like '*tarkov_display*' -or $_.Name -in 'RaidReady.exe', 'TarkovCompanion.exe', 'TarkovDisplay.exe' }
 if ($running) {
-    Write-Host 'Tarkov Companion is still running. Quit it (Settings > Quit the app, or end pythonw.exe in Task Manager), then run update.bat again.' -ForegroundColor Yellow
+    Write-Host 'RaidReady is still running. Quit it (Settings > Quit the app, or end pythonw.exe in Task Manager), then run update.bat again.' -ForegroundColor Yellow
     Write-Host 'You can also update from inside the app: Settings > Updates.'
     exit 1
 }
@@ -30,7 +30,7 @@ try {
     Expand-Archive -Path $zip -DestinationPath (Join-Path $Tmp 'x')
     $src = (Get-ChildItem (Join-Path $Tmp 'x') -Directory | Select-Object -First 1).FullName
     if (-not $src -or -not (Test-Path (Join-Path $src 'tarkov_display\__init__.py'))) {
-        throw 'The download does not look like Tarkov Companion.'
+        throw 'The download does not look like RaidReady.'
     }
 
     # Replace the code folder as a whole so files removed upstream don't linger,
@@ -47,7 +47,7 @@ try {
     if (Test-Path $Backup) { Remove-Item $Backup -Recurse -Force }
     # A file an earlier version shipped by mistake.
     Remove-Item (Join-Path $AppDir 'vermin-1.8.0-py3-none-any.whl') -Force -ErrorAction SilentlyContinue
-    Get-ChildItem $AppDir -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
+    Get-ChildItem $Package -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
 
     try {
         $commit = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Branch" -UseBasicParsing
@@ -55,9 +55,11 @@ try {
         Write-Host "Latest change: $title"
     } catch { }
 
-    # The same Python run.bat uses: the py launcher if there is one.
+    # The same Python run.bat uses: the one that came with the download, else the py launcher.
     $pyExe = $null; $pyArgs = @()
-    if (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }
+    $bundled = Join-Path $AppDir 'python\python.exe'
+    if (Test-Path $bundled) { $pyExe = $bundled; Remove-Item Env:PYTHONHOME, Env:PYTHONPATH -ErrorAction SilentlyContinue }
+    elseif (Get-Command py -ErrorAction SilentlyContinue) { $pyExe = 'py'; $pyArgs = @('-3') }
     elseif (Get-Command python -ErrorAction SilentlyContinue) { $pyExe = 'python' }
     if ($pyExe) {
         Write-Host 'Checking Python packages...'
