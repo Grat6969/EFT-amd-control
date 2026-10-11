@@ -315,3 +315,9 @@ Raising `__version__` in `tarkov_display/__init__.py` on the default branch make
 build both downloads (the app plus its own Python) and publish them as a release:
 `RaidReadySetup.exe` (the installer, from `installer/raidready.iss`) and
 `RaidReady-windows.zip` (the portable copy). See `.github/workflows/release.yml`.
+
+Two more workflows test what the normal tests can't. **Live data check** runs the app
+against tarkov.dev's real files and crawls every page with a headless browser; it runs
+every Monday and whenever the data code changes, and GitHub emails the repo owner if it
+fails. **Windows tests** runs the suite on Windows and checks the Windows-only parts for
+real, including the price check end to end.
