@@ -1,0 +1,41 @@
+name: Windows tests
+
+# RaidReady runs on Windows, but most of its tests run fine anywhere. This
+# runs the whole suite on Windows, then tests/windows_check.py exercises the
+# Windows-only parts for real: Windows OCR, the price check end to end (screen
+# capture, OCR, item match), the price popup, the secret store, hotkeys,
+# display control without an AMD card and finding the game's Logs folder.
+# Python 3.9 is the oldest the README promises; 3.12 is what the installer ships.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tarkov_display/**"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install --disable-pip-version-check pytest pillow -r requirements.txt
+      - name: Test suite on Windows
+        run: python -m pytest -q
+      - name: Windows-only features
+        if: always()
+        run: python -m tests.windows_check
