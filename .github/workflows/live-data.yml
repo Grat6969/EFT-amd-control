@@ -14,6 +14,8 @@ on:
       - "tarkov_display/datasets.py"
       - "tarkov_display/prices.py"
       - "tests/live_check.py"
+      - "tests/replay.py"
+      - "tests/ui_crawl.mjs"
       - ".github/workflows/live-data.yml"
 
 permissions:
@@ -30,6 +32,23 @@ jobs:
           python-version: "3.12"
       - name: Check the app against tarkov.dev's live data
         run: python -m tests.live_check --save live-data --graphql --items 60
+
+      - name: Install a browser for the crawl
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      # The whole app on the real data: every page in PvP and PvE, every quest,
+      # the raid plan for every map with every quest pinned, item panels.
+      - name: Crawl the app on the real data
+        run: |
+          python -m tests.replay live-data 47999 > replay.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:47999/ && break; sleep 1; done
+          node tests/ui_crawl.mjs http://127.0.0.1:47999/
+
+      - name: App log from the crawl
+        if: always()
+        run: grep -E "WARNING|ERROR|Traceback" -A4 replay.log | head -200 || true
       - name: Keep the downloaded files
         if: always()
         uses: actions/upload-artifact@v4

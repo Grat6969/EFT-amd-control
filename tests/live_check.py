@@ -266,6 +266,13 @@ def main(argv=None) -> int:
         print("status ok:", [s.get("name") for s in status.get("currentStatuses") or []][:8])
     except Exception:
         rep.error(f"status crashed:\n{traceback.format_exc()}")
+    # Map images and wipe dates come from tarkov.dev's website data on GitHub.
+    for label, fetch in (("map images", datasets._map_images), ("wipe dates", datasets._wipes)):
+        try:
+            result = fetch(TarkovClient())
+            print(f"{label} ok: {len(result)}")
+        except Exception:
+            rep.error(f"{label} crashed:\n{traceback.format_exc()}")
     for mode in ("regular", "pve"):
         check_mode(rep, mode, args)
 
