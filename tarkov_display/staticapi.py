@@ -75,7 +75,7 @@ def _descend(value, name) -> Iterable[Tuple[Any, Any, Any]]:
 
 def jsonpath(root, path: str) -> List[Tuple[Any, Any]]:
     """(container, key) for each value ``path`` selects in ``root``."""
-    if not path.startswith("$"):
+    if not isinstance(path, str) or not path.startswith("$"):
         raise ValueError(f"unsupported JSONPath {path!r}")
     nodes = [(None, None, root)]
     pos = 1
@@ -109,9 +109,14 @@ EXTRA_TRANSLATIONS = {
 def translate(doc: dict, locale: Dict[str, str], extra: Iterable[str] = ()) -> None:
     """Swap the translation keys at the file's own ``translations`` paths (and
     ``extra`` ones) for English text; keys without a translation stay as they are."""
-    for path in list(doc.get("translations") or []) + list(extra):
+    if not isinstance(locale, dict):
+        locale = {}
+    paths = doc.get("translations")
+    for path in (list(paths) if isinstance(paths, list) else []) + list(extra):
         try:
             for parent, key in jsonpath(doc, path):
+                if parent is None:  # "$" itself: nothing holds it
+                    continue
                 value = parent[key]
                 if isinstance(value, str):
                     parent[key] = locale.get(value, value)
@@ -141,7 +146,8 @@ def load(client: TarkovClient, path: str, *, translated: bool = False, max_age: 
             raise ApiError(f"tarkov.dev's {path} file isn't in the expected format")
         if translated:
             locale = client.get_json(f"{STATIC_URL}{path}_en")
-            translate(doc, (locale or {}).get("data") or {}, EXTRA_TRANSLATIONS.get(path.rsplit("/", 1)[-1], ()))
+            locale = locale.get("data") if isinstance(locale, dict) else None
+            translate(doc, locale or {}, EXTRA_TRANSLATIONS.get(path.rsplit("/", 1)[-1], ()))
         data = prepare(doc["data"]) if prepare else doc["data"]
         _cache[path] = (time.time(), data)
         return data

@@ -25,6 +25,9 @@ from . import __version__
 log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+# What a file under /static/ may be called: plain names separated by "/". No
+# backslashes, drive letters, empty parts, "..", or names starting with a dot.
+STATIC_NAME = re.compile(r"(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*")
 APP_ID = "tarkov-companion"
 MAX_BODY = 2 * 1024 * 1024
 # Fixed types: on Windows, mimetypes reads the registry, where .js or .css can
@@ -300,7 +303,12 @@ class Server:
                         pass
 
             def _read_json(self):
-                length = int(self.headers.get("Content-Length") or 0)
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    raise HttpError(400, "bad Content-Length") from None
+                if length < 0:  # read(-1) would wait for the client to hang up
+                    raise HttpError(400, "bad Content-Length")
                 if length > MAX_BODY:
                     raise HttpError(413, "request too large")
                 if not length:
@@ -337,8 +345,15 @@ class Server:
                     })
                 if not path.startswith("/static/"):
                     raise HttpError(404, "not found")
-                target = (WEB_DIR / path[len("/static/"):]).resolve()
-                if WEB_DIR not in target.parents or not target.is_file():
+                # Checked as text before the disk is touched: on Windows, merely
+                # resolving a path like \\host\share makes the system contact that
+                # host (and send it the user's login hash), and any web page can
+                # point the browser at this server.
+                name = path[len("/static/"):]
+                if not STATIC_NAME.fullmatch(name):
+                    raise HttpError(404, "not found")
+                target = WEB_DIR.joinpath(*name.split("/"))
+                if WEB_DIR not in target.resolve().parents or not target.is_file():
                     raise HttpError(404, "not found")
                 ctype = CONTENT_TYPES.get(target.suffix.lower()) or mimetypes.guess_type(target.name)[0] or "application/octet-stream"
                 self._send(200, target.read_bytes(), ctype, {"Cache-Control": "no-cache"})

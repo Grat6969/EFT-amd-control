@@ -182,6 +182,16 @@ def _json(body: str):
         return None
 
 
+# The logs aren't a published format and can change with any game patch, so
+# every field is checked for the type it should have before it's used.
+def _dict(value) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _count(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def parse_entry(when: str, header: str, body: str) -> Optional[Event]:
     if "Session mode:" in header:
         m = re.search(r"Session mode:\s*([^\s|]+)", header)
@@ -196,23 +206,24 @@ def parse_entry(when: str, header: str, body: str) -> Optional[Event]:
             "raidId": raid.group(1) if raid else None,
         })
     if "Got notification | UserMatchOver" in header:
-        data = _json(body) or {}
+        data = _dict(_json(body))
         return Event("raid_end", when, {"map": data.get("location"), "raidId": data.get("shortId")})
     if "Got notification | ChatMessageReceived" in header:
-        data = _json(body)
-        message = (data or {}).get("message") or {}
+        message = _dict(_dict(_json(body)).get("message"))
         kind = message.get("type")
-        template = str(message.get("templateId") or "")
-        if kind in QUEST_STATUS and template:
+        template = message.get("templateId")
+        template = template if isinstance(template, str) else ""
+        if isinstance(kind, int) and kind in QUEST_STATUS and template:
             return Event("quest", when, {"questId": template.split(" ")[0], "status": QUEST_STATUS[kind]})
         if kind == 4 and template.split(" ")[0] == FLEA_SOLD_TEMPLATE:
-            sold = message.get("systemData") or {}
+            sold = _dict(message.get("systemData"))
+            items = _dict(message.get("items")).get("data")
             roubles = sum(
-                ((i.get("upd") or {}).get("StackObjectsCount") or 0)
-                for i in ((message.get("items") or {}).get("data") or [])
-                if i.get("_tpl") == ROUBLES
+                _count(_dict(i.get("upd")).get("StackObjectsCount"))
+                for i in (items if isinstance(items, list) else [])
+                if isinstance(i, dict) and i.get("_tpl") == ROUBLES
             )
-            return Event("flea", when, {"itemId": sold.get("soldItem"), "count": sold.get("itemCount") or 1,
+            return Event("flea", when, {"itemId": sold.get("soldItem"), "count": _count(sold.get("itemCount")) or 1,
                                         "buyer": sold.get("buyerNickname"), "roubles": roubles})
     return None
 
@@ -221,7 +232,11 @@ def parse_text(text: str, mode: Optional[str] = None) -> List[Event]:
     """Events in a block of log text; ``mode`` is the session mode so far."""
     events = []
     for when, header, body in split_entries(text):
-        ev = parse_entry(when, header, body)
+        try:
+            ev = parse_entry(when, header, body)
+        except Exception:  # one odd entry must never lose the others
+            log.debug("skipped a log entry at %s: %s", when, header[:120], exc_info=True)
+            continue
         if not ev:
             continue
         if ev.kind == "mode":
@@ -366,7 +381,10 @@ class LogFollower:
                 else:
                     ev.mode = self.mode_at(ev.time)
                 self.last_event = ev
-                self.on_event(ev, history)
+                try:
+                    self.on_event(ev, history)
+                except Exception:  # the text is already read: don't drop the events after it
+                    log.warning("Handling a %s event from the game log failed", ev.kind, exc_info=True)
 
 
 # -- reading old sessions ------------------------------------------------------------------

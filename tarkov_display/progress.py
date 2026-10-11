@@ -8,7 +8,9 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import math
 import os
+import shutil
 import re
 import threading
 from pathlib import Path
@@ -41,7 +43,7 @@ class ProgressError(ValueError):
 def _int(value, lo: int, hi: int) -> int:
     try:
         number = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # JSON allows Infinity, and int() of it overflows
         raise ProgressError(f"not a number: {value!r}") from None
     return max(lo, min(hi, number))
 
@@ -74,7 +76,7 @@ def _clean(data: dict) -> dict:
         if isinstance(values, dict):
             out[key] = {
                 k: _int(v, 0, hi) for k, v in values.items()
-                if isinstance(k, str) and ID.match(k) and isinstance(v, (int, float)) and v > 0
+                if isinstance(k, str) and ID.match(k) and isinstance(v, (int, float)) and math.isfinite(v) and v > 0
             }
     return out
 
@@ -88,8 +90,12 @@ class Progress:
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     self.data = _clean(json.load(fh))
-            except (OSError, ValueError) as exc:
+            except Exception as exc:  # a damaged file must never stop the app starting
                 log.warning("Could not read progress file %s: %s", path, exc)
+                try:  # keep it: the next save would overwrite it
+                    shutil.copy2(path, path.with_name(path.stem + ".unreadable" + path.suffix))
+                except OSError:
+                    pass
 
     def snapshot(self) -> dict:
         with self._lock:

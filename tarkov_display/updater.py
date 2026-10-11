@@ -20,7 +20,7 @@ import tempfile
 import time
 import urllib.request
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, List, Optional
 
 from . import __version__
@@ -123,8 +123,8 @@ class Updater:
         progress("Installing...")
         with tempfile.TemporaryDirectory(prefix="tarkov-update-") as tmp:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                for name in zf.namelist():  # refuse paths that escape the folder
-                    if name.startswith("/") or ".." in Path(name).parts:
+                for name in zf.namelist():  # refuse paths that could escape the folder
+                    if name.startswith("/") or "\\" in name or ":" in name or ".." in PurePosixPath(name).parts:
                         raise RuntimeError(f"Unsafe path in download: {name}")
                 zf.extractall(tmp)
             tops = [p for p in Path(tmp).iterdir() if p.is_dir()]
