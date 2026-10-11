@@ -5,6 +5,13 @@ import { ext, h, icon, stepper } from "./lib.js";
 import { peek, setProgress, store } from "./store.js";
 
 const MAP_URL = "https://tarkov.dev/map/";
+
+// tarkov.dev's data can change shape. Read every list through these, so one
+// odd objective shows less instead of blanking the whole page.
+export const list = (x) => (Array.isArray(x) ? x : []);
+export const objs = (x) => list(x).filter((v) => v && typeof v === "object" && !Array.isArray(v));
+const itemGroups = (x) => list(x).map(objs).filter((g) => g.length);
+const text = (x) => (typeof x === "string" || typeof x === "number" ? String(x) : "");
 const CMP = { ">=": "at least", ">": "more than", "<=": "at most", "<": "less than", "=": "exactly", "==": "exactly" };
 
 // Objectives done in raid (the rest happen at traders, in the hideout or over time).
@@ -15,8 +22,8 @@ export function isInRaid(o) {
   return IN_RAID.has(o.type) || objectiveMapIds(o).length > 0;
 }
 
-function words(list, joiner = "or") {
-  const xs = (list || []).filter(Boolean);
+function words(items, joiner = "or") {
+  const xs = list(items).map(text).filter(Boolean);
   if (xs.length <= 1) return xs[0] || "";
   return `${xs.slice(0, -1).join(", ")} ${joiner} ${xs[xs.length - 1]}`;
 }
@@ -25,21 +32,21 @@ const hour = (n) => `${String(n).padStart(2, "0")}:00`;
 const cmp = (c, v, unit = "") => `${CMP[c] || c || ""} ${v}${unit}`.trim();
 
 function mapIndex() {
-  return new Map((peek("maps") || []).map((m) => [m.id, m]));
+  return new Map(objs(peek("maps")).map((m) => [m.id, m]));
 }
 
 // Every map an objective takes place on (ids).
 export function objectiveMapIds(o) {
-  const ids = new Set((o.maps || []).map((m) => m?.id).filter(Boolean));
-  for (const z of o.zones || []) if (z?.map?.id) ids.add(z.map.id);
-  for (const loc of o.possibleLocations || []) if (loc?.map?.id) ids.add(loc.map.id);
+  const ids = new Set(objs(o.maps).map((m) => m.id).filter(Boolean));
+  for (const z of objs(o.zones)) if (z.map?.id) ids.add(z.map.id);
+  for (const loc of objs(o.possibleLocations)) if (loc.map?.id) ids.add(loc.map.id);
   return [...ids];
 }
 
 // Maps a quest involves (its own map and its objectives' maps).
 export function taskMapIds(task) {
   const ids = new Set(task.map?.id ? [task.map.id] : []);
-  for (const o of task.objectives || []) for (const id of objectiveMapIds(o)) ids.add(id);
+  for (const o of objs(task.objectives)) for (const id of objectiveMapIds(o)) ids.add(id);
   return [...ids];
 }
 
@@ -77,7 +84,7 @@ function progressControl(o) {
 // -- how ----------------------------------------------------------------------------------------
 
 function chips(items, count, full = false) {
-  return h("span.obj-items.inline", (items || []).filter(Boolean).slice(0, 12).map((it) => itemChip(it, count ?? null, { compact: true, fullName: full })));
+  return h("span.obj-items.inline", objs(items).slice(0, 12).map((it) => itemChip(it, count ?? null, { compact: true, fullName: full })));
 }
 
 function line(label, ...content) {
@@ -85,9 +92,9 @@ function line(label, ...content) {
 }
 
 function effectText(e, who) {
-  if (!e) return null;
-  const parts = `${words(e.effects, "and")}${e.bodyParts?.length ? ` on ${who === "you" ? "your" : "their"} ${words(e.bodyParts)}` : ""}`;
-  const time = e.time ? ` for ${cmp(e.time.compareMethod, e.time.value, " s")}` : "";
+  if (!e || typeof e !== "object") return null;
+  const parts = `${words(e.effects, "and")}${words(e.bodyParts) ? ` on ${who === "you" ? "your" : "their"} ${words(e.bodyParts)}` : ""}`;
+  const time = e.time && typeof e.time === "object" && e.time.value != null ? ` for ${cmp(e.time.compareMethod, e.time.value, " s")}` : "";
   return `${who === "you" ? "You have" : "Target has"} ${parts}${time}`;
 }
 
@@ -99,18 +106,19 @@ export function objectiveHow(o) {
     case "shoot": {
       const targets = words(o.targetNames) || "targets";
       out.push(line(o.shotType === "kill" || !o.shotType ? "Kill" : "Hit", `${n}${targets}`));
-      if (o.bodyParts?.length) out.push(line("Hits to", words(o.bodyParts)));
+      if (words(o.bodyParts)) out.push(line("Hits to", words(o.bodyParts)));
       if (o.distance && o.distance.value) out.push(line("Range", `from ${cmp(o.distance.compareMethod, o.distance.value, " m")}`));
       if (o.timeFromHour != null && o.timeUntilHour != null && o.timeFromHour !== o.timeUntilHour) {
         out.push(line("Time", `between ${hour(o.timeFromHour)} and ${hour(o.timeUntilHour)} (in-game)`));
       }
-      if (o.usingWeapon?.length) out.push(line(o.usingWeapon.length > 1 ? "Weapon (any)" : "Weapon", chips(o.usingWeapon)));
-      for (const mods of o.usingWeaponMods || []) if (mods?.length) out.push(line("With mods", chips(mods)));
-      if (o.wearing?.length) {
-        out.push(line(o.wearing.length > 1 ? "Wearing (any)" : "Wearing",
-          ...o.wearing.map((set, i) => [i ? h("span.muted", " or ") : null, chips(set)])));
+      const weapons = objs(o.usingWeapon), wearing = itemGroups(o.wearing);
+      if (weapons.length) out.push(line(weapons.length > 1 ? "Weapon (any)" : "Weapon", chips(weapons)));
+      for (const mods of itemGroups(o.usingWeaponMods)) out.push(line("With mods", chips(mods)));
+      if (wearing.length) {
+        out.push(line(wearing.length > 1 ? "Wearing (any)" : "Wearing",
+          ...wearing.map((set, i) => [i ? h("span.muted", " or ") : null, chips(set)])));
       }
-      if (o.notWearing?.length) out.push(line("Not wearing", chips(o.notWearing)));
+      if (objs(o.notWearing).length) out.push(line("Not wearing", chips(o.notWearing)));
       if (o.playerHealthEffect) out.push(line("While", effectText(o.playerHealthEffect, "you")));
       if (o.enemyHealthEffect) out.push(line("While", effectText(o.enemyHealthEffect, "them")));
       break;
@@ -118,12 +126,12 @@ export function objectiveHow(o) {
     case "extract": {
       const status = words(o.exitStatus) || "Survived";
       out.push(line("Extract", `${o.count > 1 ? `${o.count} times ` : ""}with status: ${status}`));
-      if (o.exitName) out.push(line("Exit", o.exitName));
+      if (text(o.exitName)) out.push(line("Exit", text(o.exitName)));
       break;
     }
     case "giveItem": case "findItem": case "haveItem": case "sellItem": {
       const verb = { giveItem: "Hand over", findItem: "Find", haveItem: "Have", sellItem: "Sell" }[o.type];
-      const many = (o.items || []).length > 1;
+      const many = objs(o.items).length > 1;
       out.push(line(verb, `${o.count || 1}×${many ? " any of" : ""}`, chips(o.items),
         o.foundInRaid ? h("span.fir", { title: "Found in raid" }, "FiR") : null));
       if (o.dogTagLevel) out.push(line("Dogtag", `level ${o.dogTagLevel} or higher`));
@@ -151,17 +159,17 @@ export function objectiveHow(o) {
       break;
     case "buildWeapon":
       out.push(line("Build", chips([o.item])));
-      for (const a of o.attributes || []) {
+      for (const a of objs(o.attributes)) {
         if (a?.requirement?.value) out.push(line(a.name, cmp(a.requirement.compareMethod, a.requirement.value)));
       }
-      if (o.containsAll?.length) out.push(line("With parts", chips(o.containsAll)));
-      if (o.containsCategory?.length) out.push(line("And a", words(o.containsCategory.map((c) => c.name))));
+      if (objs(o.containsAll).length) out.push(line("With parts", chips(o.containsAll)));
+      if (words(objs(o.containsCategory).map((c) => c.name))) out.push(line("And a", words(objs(o.containsCategory).map((c) => c.name))));
       break;
     case "experience":
       if (o.healthEffect) out.push(line("Have", effectText(o.healthEffect, "you").replace(/^You have /, "")));
       break;
     case "skill":
-      if (o.skillLevel) out.push(line("Skill", `${o.skillLevel.name} level ${o.skillLevel.level}`));
+      if (text(o.skillLevel?.name)) out.push(line("Skill", `${text(o.skillLevel.name)} level ${text(o.skillLevel.level) || "?"}`));
       break;
     case "traderLevel":
       out.push(line("Trader", `${o.trader?.name || "Trader"} loyalty level ${o.level}`));
@@ -191,17 +199,18 @@ export function mapLink(o, task) {
   const maps = mapIndex();
   const ids = objectiveMapIds(o);
   const mapId = ids[0] || task?.map?.id;
-  const norm = (o.maps || []).find((m) => m?.id === mapId)?.normalizedName || maps.get(mapId)?.normalizedName
+  if (!mapId) return null;
+  const norm = objs(o.maps).find((m) => m.id === mapId)?.normalizedName || maps.get(mapId)?.normalizedName
     || (task?.map?.id === mapId ? task.map.normalizedName : null);
   if (!norm) return null;
-  const q = (o.zones || []).map((z) => z?.id).filter(Boolean);
+  const q = objs(o.zones).map((z) => z.id).filter(Boolean);
   if (o.type === "findQuestItem" && o.questItem?.id) q.push(o.questItem.id);
   return `${MAP_URL}${norm}${q.length ? `?q=${encodeURIComponent([...new Set(q)].join(","))}` : ""}`;
 }
 
 export function objectiveWhere(o, task) {
   const maps = mapIndex();
-  const name = (id) => maps.get(id)?.name || (o.maps || []).find((m) => m?.id === id)?.name || (task?.map?.id === id ? task.map.name : null);
+  const name = (id) => maps.get(id)?.name || objs(o.maps).find((m) => m.id === id)?.name || (task?.map?.id === id ? task.map.name : null);
   const ids = objectiveMapIds(o);
   const out = [];
   if (ids.length) {
@@ -210,12 +219,12 @@ export function objectiveWhere(o, task) {
   } else if (isInRaid(o)) {
     out.push(line("Map", "any map"));
   }
-  if (o.zoneNames?.length && o.type !== "visit") out.push(line(o.type === "shoot" ? "Inside" : "Area", words(o.zoneNames)));
-  for (const group of o.requiredKeys || []) {
-    if (group?.length) out.push(line(group.length > 1 ? "Key (any)" : "Key", chips(group, null, true)));
+  if (words(o.zoneNames) && o.type !== "visit") out.push(line(o.type === "shoot" ? "Inside" : "Area", words(o.zoneNames)));
+  for (const group of itemGroups(o.requiredKeys)) {
+    out.push(line(group.length > 1 ? "Key (any)" : "Key", chips(group, null, true)));
   }
-  const link = (ids.length || o.zones?.length) ? mapLink(o, task) : null;
-  if (link) out.push(h("div.how-line", h("span.how-label"), ext(link, o.zones?.length || o.type === "findQuestItem" ? "Show the spot on tarkov.dev's map" : "Open the map on tarkov.dev")));
+  const link = (ids.length || objs(o.zones).length) ? mapLink(o, task) : null;
+  if (link) out.push(h("div.how-line", h("span.how-label"), ext(link, objs(o.zones).length || o.type === "findQuestItem" ? "Show the spot on tarkov.dev's map" : "Open the map on tarkov.dev")));
   return out;
 }
 
@@ -227,22 +236,22 @@ export function objectiveView(o, task, { track = false, fail = false } = {}) {
   return h("li.obj.rich" + (o.optional ? ".optional" : "") + (done ? ".done" : "") + (fail ? ".fail" : ""),
     tracked ? progressControl(o) : h("span.obj-dot"),
     h("div.obj-main",
-      h("div.obj-text", o.description || o.type, o.optional ? h("span.muted", " (optional)") : null),
+      h("div.obj-text", text(o.description) || text(o.type) || "Objective", o.optional ? h("span.muted", " (optional)") : null),
       h("div.how", ...objectiveHow(o), ...objectiveWhere(o, task))));
 }
 
 // tarkov.dev builds this list from the objectives' keys, so only show keys no objective lists.
 export function neededKeysView(task) {
-  const shown = new Set((task.objectives || []).flatMap((o) => (o.requiredKeys || []).flat()).map((k) => k?.id));
-  const groups = (task.neededKeys || []).map((g) => ({ ...g, keys: (g?.keys || []).filter((k) => k && !shown.has(k.id)) }))
+  const shown = new Set(objs(task.objectives).flatMap((o) => itemGroups(o.requiredKeys).flat()).map((k) => k.id));
+  const groups = objs(task.neededKeys).map((g) => ({ ...g, keys: objs(g.keys).filter((k) => !shown.has(k.id)) }))
     .filter((g) => g.keys.length);
   if (!groups.length) return null;
   return h("div", { style: { marginTop: "14px" } }, h("div.section-title", "Keys this quest needs"),
-    h("div.how", groups.map((g) => line(g.map?.name || "Any map", chips(g.keys, null, true)))));
+    h("div.how", groups.map((g) => line(text(g.map?.name) || "Any map", chips(g.keys, null, true)))));
 }
 
 export function failView(task) {
-  const fails = task.failConditions || [];
+  const fails = objs(task.failConditions);
   if (!fails.length) return null;
   return h("div", { style: { marginTop: "14px" } }, h("div.section-title", "Fails if"),
     h("ul.obj-list", fails.map((o) => objectiveView(o, task, { fail: true }))));
@@ -264,35 +273,38 @@ function addKit(map, key, entry) {
 export function raidKit(tasks, mapId) {
   const bring = new Map(), find = new Map();
   for (const task of tasks) {
-    for (const o of task.objectives || []) {
+    for (const o of objs(task.objectives)) {
       if (objectiveDone(o)) continue;
       const here = onMap(o, mapId);
       const quests = [task.name];
+      const n = Math.max(1, Number(o.count) || 1);
+      const items = objs(o.items), useAny = objs(o.useAny), weapons = objs(o.usingWeapon);
       if (here) {
-        for (const group of o.requiredKeys || []) {
-          if (group?.length) addKit(bring, "key:" + group.map((k) => k.id).sort().join("|"), { kind: "Key", items: group, count: 1, quests });
+        for (const group of itemGroups(o.requiredKeys)) {
+          addKit(bring, "key:" + group.map((k) => k.id).sort().join("|"), { kind: "Key", items: group, count: 1, quests });
         }
-        if (o.type === "mark" && o.markerItem) addKit(bring, "mark:" + o.markerItem.id, { kind: "Marker", items: [o.markerItem], count: 1, quests });
-        if (o.type === "plantItem" && o.items?.length) {
-          addKit(bring, "plant:" + o.items.map((i) => i.id).sort().join("|"), { kind: "To place", items: o.items, count: o.count || 1, quests });
+        const marker = objs([o.markerItem])[0], questItem = objs([o.questItem])[0];
+        if (o.type === "mark" && marker) addKit(bring, "mark:" + marker.id, { kind: "Marker", items: [marker], count: 1, quests });
+        if (o.type === "plantItem" && items.length) {
+          addKit(bring, "plant:" + items.map((i) => i.id).sort().join("|"), { kind: "To place", items, count: n, quests });
         }
-        if (o.type === "useItem" && o.useAny?.length) {
-          addKit(bring, "use:" + o.useAny.map((i) => i.id).sort().join("|"), { kind: "To use", items: o.useAny, count: o.count || 1, quests });
+        if (o.type === "useItem" && useAny.length) {
+          addKit(bring, "use:" + useAny.map((i) => i.id).sort().join("|"), { kind: "To use", items: useAny, count: n, quests });
         }
-        if (o.type === "shoot" && o.usingWeapon?.length) {
-          addKit(bring, "weapon:" + o.usingWeapon.map((i) => i.id).sort().join("|"), { kind: "Weapon", items: o.usingWeapon, count: 1, quests });
+        if (o.type === "shoot" && weapons.length) {
+          addKit(bring, "weapon:" + weapons.map((i) => i.id).sort().join("|"), { kind: "Weapon", items: weapons, count: 1, quests });
         }
         if (o.type === "shoot") {
-          for (const set of o.wearing || []) {
-            if (set?.length) addKit(bring, "wear:" + set.map((i) => i.id).sort().join("|"), { kind: "Wear", items: set, count: 1, quests, all: true });
+          for (const set of itemGroups(o.wearing)) {
+            addKit(bring, "wear:" + set.map((i) => i.id).sort().join("|"), { kind: "Wear", items: set, count: 1, quests, all: true });
           }
         }
-        if (o.type === "findQuestItem" && o.questItem) {
-          addKit(find, "quest:" + o.questItem.id, { kind: "Quest item", items: [o.questItem], count: o.count || 1, quests });
+        if (o.type === "findQuestItem" && questItem) {
+          addKit(find, "quest:" + questItem.id, { kind: "Quest item", items: [questItem], count: n, quests });
         }
       }
-      if ((o.type === "giveItem" || o.type === "findItem") && o.foundInRaid && o.items?.length) {
-        addKit(find, "fir:" + o.items.map((i) => i.id).sort().join("|"), { kind: "Found in raid", items: o.items, count: o.count || 1, quests });
+      if ((o.type === "giveItem" || o.type === "findItem") && o.foundInRaid && items.length) {
+        addKit(find, "fir:" + items.map((i) => i.id).sort().join("|"), { kind: "Found in raid", items, count: n, quests });
       }
     }
   }

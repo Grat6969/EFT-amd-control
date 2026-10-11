@@ -153,10 +153,61 @@ async function crawlMode(mode) {
   return { quests: shown, maps: maps.length, objectivesTicked: Math.ceil(objectives.length / 7), itemPanels: Math.min(rows, 40) };
 }
 
+// The quest how-and-where code fed thousands of malformed objectives (wrong
+// types, nulls, unknown kinds): a future data change must show less, not crash.
+async function fuzzQuestInfo() {
+  where = "questinfo fuzz";
+  const report = await page.evaluate(async () => {
+    const q = await import("/static/js/questinfo.js");
+    let seed = 20261011;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const pick = (xs) => xs[Math.floor(rnd() * xs.length)];
+    const TYPES = ["shoot", "extract", "giveItem", "findItem", "plantItem", "mark", "findQuestItem", "giveQuestItem",
+      "plantQuestItem", "useItem", "visit", "buildWeapon", "experience", "skill", "traderLevel", "traderStanding",
+      "taskStatus", "playerLevel", "hideoutStation", "sellItem", "haveItem", "globalVariable", "dialogue", "???", null];
+    const item = () => pick([{ id: "x" + Math.floor(rnd() * 9), name: "Item", shortName: "It" }, { id: "y" }, {}, null, "str", 5]);
+    const val = (d = 0) => {
+      const k = pick(["null", "undef", "num", "str", "bool", "arr", "obj", "items", "groups"]);
+      if (k === "null") return null; if (k === "undef") return undefined; if (k === "num") return pick([0, -1, 3, 1e9, NaN]);
+      if (k === "str") return pick(["", "abc", "Customs"]); if (k === "bool") return rnd() < 0.5;
+      if (k === "items") return [item(), item()];
+      if (k === "groups") return [[item()], [item(), item()], null];
+      if (d > 2) return {};
+      return k === "arr" ? [val(d + 1), val(d + 1)] : { id: "m" + Math.floor(rnd() * 3), name: pick(["Customs", null]), map: pick([{ id: "m1" }, null, "x"]), normalizedName: pick(["customs", undefined]) };
+    };
+    const FIELDS = ["maps", "zones", "possibleLocations", "requiredKeys", "items", "useAny", "usingWeapon", "usingWeaponMods",
+      "wearing", "notWearing", "questItem", "markerItem", "item", "count", "foundInRaid", "targetNames", "exitStatus", "exitName",
+      "bodyParts", "zoneNames", "distance", "timeFromHour", "timeUntilHour", "playerHealthEffect", "enemyHealthEffect",
+      "healthEffect", "skillLevel", "trader", "level", "task", "status", "playerLevel", "hideoutStation", "stationLevel",
+      "attributes", "containsAll", "containsCategory", "compareMethod", "value", "dogTagLevel", "minDurability", "maxDurability", "shotType", "optional", "description"];
+    const errors = new Map();
+    let runs = 0;
+    for (let i = 0; i < 4000; i++) {
+      const o = { id: "o" + i, type: pick(TYPES) };
+      for (const f of FIELDS) if (rnd() < 0.35) o[f] = val();
+      const task = { id: "t" + i, name: "Task", map: pick([{ id: "m1", name: "Customs", normalizedName: "customs" }, null, undefined]), objectives: [o], neededKeys: pick([[{ keys: [item()], map: val() }], null, "x"]), failConditions: pick([[o], null]) };
+      for (const [name, fn] of [["isInRaid", () => q.isInRaid(o)], ["onMap", () => q.onMap(o, pick(["m1", null]))],
+        ["objectiveHow", () => q.objectiveHow(o)], ["objectiveWhere", () => q.objectiveWhere(o, task)],
+        ["objectiveView", () => q.objectiveView(o, task, { track: rnd() < 0.5 })], ["neededKeysView", () => q.neededKeysView(task)],
+        ["failView", () => q.failView(task)], ["raidKit", () => q.raidKit([task], pick(["m1", null]))], ["mapLink", () => q.mapLink(o, task)]]) {
+        runs++;
+        try { fn(); } catch (e) {
+          const key = `${name}: ${e.message}`;
+          if (!errors.has(key)) errors.set(key, JSON.stringify(o).slice(0, 260));
+        }
+      }
+    }
+    return { runs, errors: [...errors.entries()] };
+  });
+  for (const [message, example] of report.errors) add("fuzz crash", `${message} e.g. ${example}`);
+  return report.runs;
+}
+
 const summary = {};
 await page.goto(base);
 await page.waitForSelector(".nav-link", { timeout: 30000 });
 for (const mode of ["regular", "pve"]) summary[mode] = await crawlMode(mode);
+summary.fuzzCalls = await fuzzQuestInfo();
 await browser.close();
 
 console.log("Crawled:", JSON.stringify(summary));

@@ -1,6 +1,6 @@
 import { itemChip, traderAvatar } from "../components.js";
 import { badge, button, empty, errorBox, ext, fmt, h, icon, loading, local, mount, searchInput, segmented, select, stat, toast, toggle } from "../lib.js";
-import { failView, neededKeysView, objectiveView, taskMapIds } from "../questinfo.js";
+import { failView, neededKeysView, objectiveView, objs, taskMapIds } from "../questinfo.js";
 import { dataset, on, prerequisites, questContext, questState, setProgress, store } from "../store.js";
 
 const state = {
@@ -25,7 +25,7 @@ export default {
     // Every map a quest or one of its objectives is on.
     const mapNames = new Map(allMaps.map((m) => [m.id, m.name]));
     for (const t of tasks) {
-      for (const m of [t.map, ...(t.objectives || []).flatMap((o) => o.maps || [])]) if (m?.id && m.name && !mapNames.has(m.id)) mapNames.set(m.id, m.name);
+      for (const m of [t.map, ...objs(t.objectives).flatMap((o) => o.maps || [])]) if (m?.id && m.name && !mapNames.has(m.id)) mapNames.set(m.id, m.name);
     }
     const maps = [...new Set(tasks.flatMap(taskMapIds))].filter((id) => mapNames.has(id))
       .map((id) => ({ id, name: mapNames.get(id) })).sort((a, b) => a.name.localeCompare(b.name));
@@ -56,7 +56,7 @@ export default {
         if (state.pinned && !(store.progress.pinned || []).includes(t.id)) return false;
         if (state.q) {
           const q = state.q.toLowerCase();
-          const hay = [t.name, t.trader?.name, t.map?.name, ...(t.objectives || []).map((o) => o.description)].join(" ").toLowerCase();
+          const hay = [t.name, t.trader?.name, t.map?.name, ...objs(t.objectives).map((o) => o.description)].join(" ").toLowerCase();
           if (!q.split(/\s+/).every((w) => hay.includes(w))) return false;
         }
         return true;
@@ -163,7 +163,7 @@ function questCard(t, ctx) {
 }
 
 function details(t, ctx) {
-  const objectives = (t.objectives || []).map((o) => objectiveView(o, t));
+  const objectives = objs(t.objectives).map((o) => objectiveView(o, t));
   const reqs = (t.taskRequirements || []).filter((r) => r.task);
   const rw = t.finishRewards || {};
   return h("div.q-cols",

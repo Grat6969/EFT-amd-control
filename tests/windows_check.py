@@ -44,15 +44,20 @@ NAMES = [("LEDX Skin Transilluminator", "ledx"), ("Graphics card", "gpu"),
 
 @check("secret store (DPAPI) round trip")
 def _():
+    import base64
+
     from tarkov_display import secretstore
 
     stored = secretstore.protect("PVP_0123456789abcdef01")
     assert stored != "PVP_0123456789abcdef01" and secretstore.unprotect(stored) == "PVP_0123456789abcdef01"
+    # A token saved by another Windows user or PC (e.g. a restored backup) can't
+    # be decrypted: unprotect raises, and the app asks for the token again.
+    foreign = secretstore.DPAPI + base64.b64encode(b"saved on another PC").decode()
     try:
-        secretstore.unprotect("garbage-not-a-blob")
-    except Exception as exc:  # must fail cleanly, not crash the process
-        return f"garbage refused with {type(exc).__name__}"
-    return "garbage was accepted?"
+        secretstore.unprotect(foreign)
+    except OSError:
+        return "foreign token refused cleanly"
+    raise AssertionError("a token from another PC was 'decrypted'")
 
 
 @check("game Logs folder lookup (registry, Steam)")
@@ -91,15 +96,15 @@ def _():
 
 @check("price popup window")
 def _():
-    from tarkov_display.popup import create_host, make_dpi_aware
+    from tarkov_display.popup import ACCENT, GOOD, create_host, make_dpi_aware
 
     make_dpi_aware()
     host = create_host()
     if host is None:
         raise Skip("no display for Tk on this machine")
     stop = threading.Event()
-    host.show("LEDX Skin Transilluminator", "Flea 1,020,000 ₽", [("Flea", "1,020,000 ₽", "good")],
-              [("Needed", "Private Clinic", "warn")], "Ctrl+Alt+P", (400, 400), 5)
+    host.show("LEDX Skin Transilluminator", "LEDX  ·  1x1", [("Flea", "1,020,000 ₽", ACCENT), ("Sell to", "Flea", GOOD)],
+              [("QUEST", "Private Clinic", ACCENT)], "Ctrl+Alt+P", (400, 400), 5)
     shown = []
     host.root.after(1200, lambda: (shown.append(host.win is not None), stop.set()))
     host.run(stop)

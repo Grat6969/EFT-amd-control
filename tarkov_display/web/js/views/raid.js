@@ -1,6 +1,6 @@
 import { traderAvatar } from "../components.js";
 import { badge, button, card, empty, errorBox, h, icon, loading, local, mount, stat, toast } from "../lib.js";
-import { isInRaid, kitList, objectiveDone, objectiveView, onMap, raidKit } from "../questinfo.js";
+import { isInRaid, kitList, objectiveDone, objectiveView, objs, onMap, raidKit } from "../questinfo.js";
 import { dataset, on, prerequisites, questContext, questState, setProgress, store } from "../store.js";
 
 const ALL = "all";
@@ -33,7 +33,7 @@ export default {
       const pinnedIds = new Set(store.progress.pinned || []);
       const pinned = tasks.filter((t) => pinnedIds.has(t.id) && !ctx.done.has(t.id));
       // On a map: quests with an objective there (or on any map), and quests with nothing to do in raid.
-      const relevant = (t, id) => !id || (t.objectives || []).some((o) => isInRaid(o) && onMap(o, id)) || !(t.objectives || []).some(isInRaid);
+      const relevant = (t, id) => !id || objs(t.objectives).some((o) => isInRaid(o) && onMap(o, id)) || !objs(t.objectives).some(isInRaid);
       const here = pinned.filter((t) => relevant(t, mapId));
       const counts = new Map(maps.map((m) => [m.id, pinned.filter((t) => relevant(t, m.id)).length]));
 
@@ -46,7 +46,7 @@ export default {
             type: "button", onclick: () => { mapNorm = m.normalizedName; draw(); },
           }, m.name, counts.get(m.id) ? h("span.fchip-count", String(counts.get(m.id))) : null))));
 
-      const left = here.flatMap((t) => (t.objectives || []).filter((o) => !o.optional && isInRaid(o) && onMap(o, mapId) && !objectiveDone(o)));
+      const left = here.flatMap((t) => objs(t.objectives).filter((o) => !o.optional && isInRaid(o) && onMap(o, mapId) && !objectiveDone(o)));
       const kit = raidKit(here, mapId);
       const keys = kit.bring.filter((e) => e.kind === "Key").length;
       const others = suggestions(tasks, ctx, pinnedIds, mapId);
@@ -122,7 +122,7 @@ function questCard(t, mapId, ctx, tasks) {
 function suggestions(tasks, ctx, pinnedIds, mapId) {
   if (!mapId) return [];
   return tasks.filter((t) => !pinnedIds.has(t.id) && questState(t, ctx) === "available"
-    && (t.objectives || []).some((o) => isInRaid(o) && onMap(o, mapId) && (o.maps?.length || o.zones?.length || o.possibleLocations?.length || t.map?.id === mapId)))
+    && objs(t.objectives).some((o) => isInRaid(o) && onMap(o, mapId) && (o.maps?.length || o.zones?.length || o.possibleLocations?.length || t.map?.id === mapId)))
     .sort((a, b) => (b.kappaRequired - a.kappaRequired) || (a.minPlayerLevel || 0) - (b.minPlayerLevel || 0) || a.name.localeCompare(b.name));
 }
 
@@ -132,6 +132,6 @@ function suggestionList(list, map) {
   return h("div.list", list.slice(0, 40).map((t) => h("div.list-row",
     traderAvatar(t.trader, 26),
     h("div.grow", h("div.sugg-name", t.name, t.kappaRequired ? badge("Kappa", "accent") : null),
-      h("div.muted.small", (t.objectives || []).filter((o) => isInRaid(o) && onMap(o, map.id)).map((o) => o.description).slice(0, 2).join(" · "))),
+      h("div.muted.small", objs(t.objectives).filter((o) => isInRaid(o) && onMap(o, map.id)).map((o) => o.description).slice(0, 2).join(" · "))),
     button("Pin", () => setProgress({ op: "pin", ids: [t.id], pinned: true }), { kind: "small", iconName: "pin" }))));
 }
