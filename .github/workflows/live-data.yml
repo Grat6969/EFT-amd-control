@@ -1,0 +1,40 @@
+name: Live data check
+
+# Runs RaidReady's data code against tarkov.dev's real, current files (PvP and
+# PvE) to catch changes in their data before players hit them. The normal
+# tests use saved fake data and never touch the internet; this does.
+# The downloaded files are kept for a week as the "live-data" artifact, so the
+# app can be replayed on real data elsewhere.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tarkov_display/staticapi.py"
+      - "tarkov_display/datasets.py"
+      - "tarkov_display/prices.py"
+      - "tests/live_check.py"
+      - ".github/workflows/live-data.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Check the app against tarkov.dev's live data
+        run: python -m tests.live_check --save live-data --graphql --items 60
+      - name: Keep the downloaded files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-data
+          path: live-data/
+          retention-days: 7
+          if-no-files-found: ignore
