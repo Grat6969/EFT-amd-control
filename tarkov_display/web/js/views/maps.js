@@ -184,7 +184,7 @@ function viewer(image, { popout = false } = {}) {
       pinDrag(pin, mk);
       return pin;
     }));
-    if (editing && !markers.some((mk) => mk.id === editing)) closeEditor();
+    if (editing && !markers.some((mk) => mk.id === editing)) closeEditor({ quiet: true });  // removed elsewhere
     if (loaded()) place();
   }
 
@@ -241,45 +241,55 @@ function viewer(image, { popout = false } = {}) {
     if (added) openEditor(added.id, { fresh: true });
   }
 
+  // Closing the editor saves what you typed, except Cancel (or Escape), which
+  // drops your changes, and removes the marker if you had only just added it.
+  let saveEdits = null, discardEdits = null;
+
   function openEditor(id, { fresh = false } = {}) {
     const mk = markersOn(image).find((x) => x.id === id);
-    if (!mk) return;
+    if (!mk || editing === id) return;
+    closeEditor();
     editing = id;
     let color = mk.color;
     const note = h("textarea", { rows: 4, maxlength: 500, placeholder: "Note: loot spot, key door, sniper perch…", spellcheck: "true" });
     note.value = mk.note;
     const swatches = h("div.marker-colors");
     const drawSwatches = () => mount(swatches, COLORS.map((c) => h("button.swatch.c-" + c + (c === color ? ".on" : ""),
-      { type: "button", title: c, onclick: () => { color = c; drawSwatches(); } })));
+      { type: "button", title: c, onclick: () => { color = c; drawSwatches(); note.focus({ preventScroll: true }); } })));
     drawSwatches();
-    const save = async () => {
+    saveEdits = () => {
       local.set("map.color", color);
-      closeEditor();
-      if (note.value.trim() !== mk.note || color !== mk.color) await change({ op: "update", id, note: note.value, color });
+      if (note.value.trim() !== mk.note || color !== mk.color) change({ op: "update", id, note: note.value, color });
     };
+    discardEdits = () => { if (fresh) change({ op: "delete", id }); };
     note.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && (e.ctrlKey || !e.shiftKey)) { e.preventDefault(); save(); }
-      else if (e.key === "Escape") { e.preventDefault(); closeEditor(); }
+      if (e.key === "Enter" && (e.ctrlKey || !e.shiftKey)) { e.preventDefault(); closeEditor(); }
+      else if (e.key === "Escape") { e.preventDefault(); closeEditor({ discard: true }); }
     });
     mount(editor,
       note, swatches,
       h("div.marker-editor-actions",
-        button("Delete", async () => { closeEditor(); await change({ op: "delete", id }); }, { kind: "danger small", iconName: "trash" }),
+        button("Delete", () => { closeEditor({ quiet: true }); change({ op: "delete", id }); }, { kind: "danger small", iconName: "trash" }),
         h("span.grow"),
-        button(fresh ? "Done" : "Cancel", closeEditor, { kind: "ghost small" }),
-        button("Save", save, { kind: "primary small" })),
+        button("Cancel", () => closeEditor({ discard: true }), { kind: "ghost small", title: fresh ? "Remove this new marker" : "Forget your changes" }),
+        button("Save", () => closeEditor(), { kind: "primary small" })),
       h("div.muted.small", "Enter saves, Shift+Enter for a new line"));
     editor.hidden = false;
     drawPins();
     note.focus({ preventScroll: true });
   }
 
-  function closeEditor() {
+  function closeEditor({ discard = false, quiet = false } = {}) {
     if (!editing) return;
+    const save = saveEdits, drop = discardEdits;
     editing = null;
+    saveEdits = discardEdits = null;
     editor.hidden = true;
     editor.replaceChildren();
     layer.querySelector(".editing")?.classList.remove("editing");
+    if (quiet) return;
+    if (discard) drop?.();
+    else save?.();
   }
 
   function placeEditor() {
