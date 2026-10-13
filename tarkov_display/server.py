@@ -164,6 +164,14 @@ class Server:
         def progress_change(req, m, q, body):
             return ctx.progress_change(body)
 
+        @r("GET", "/api/markers")
+        def markers(req, m, q, body):
+            return ctx.markers_snapshot()
+
+        @r("POST", "/api/markers")
+        def markers_change(req, m, q, body):
+            return ctx.markers_change(body)
+
         @r("GET", "/api/display")
         def display(req, m, q, body):
             return ctx.display_state()

@@ -15,6 +15,7 @@ from . import APP_NAME, __version__
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
+from .markers import Markers
 from .ocr import available_engine
 from .prices import PriceDB, rub
 from .profiles import BUILTIN_PROFILES, Profile, load_config
@@ -49,6 +50,7 @@ class WebApp:
         self.cfg_dir = self.app.config_path.parent
         self.store = self._make_store(cfg.game_mode)
         self.progress = Progress(self.cfg_dir / f"progress_{cfg.game_mode}.json")
+        self.markers = Markers(self.cfg_dir / "markers.json")
         self.updater = Updater(cfg.update_branch or DEFAULT_BRANCH)
         self.stop_event = threading.Event()
         self.scans: deque = deque(maxlen=25)
@@ -138,6 +140,7 @@ class WebApp:
             "platform": sys.platform,
             "settings": {"gameMode": cfg.game_mode, "keepRunning": cfg.keep_running},
             "progress": self.progress.snapshot(),
+            "markers": self.markers.snapshot(),
             "display": self.display_state(),
             "update": self.updater.last_check or None,
             "state": self.state(),
@@ -194,6 +197,14 @@ class WebApp:
     def progress_change(self, op) -> dict:
         snap = self.progress.apply(op)
         self.publish("progress", snap)
+        return snap
+
+    def markers_snapshot(self) -> dict:
+        return self.markers.snapshot()
+
+    def markers_change(self, op) -> dict:
+        snap = self.markers.apply(op)
+        self.publish("markers", snap)
         return snap
 
     def recent_scans(self) -> list:

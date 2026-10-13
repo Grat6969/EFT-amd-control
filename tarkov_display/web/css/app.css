@@ -555,3 +555,40 @@ kbd { font-family: var(--font-head); font-size: 12px; background: var(--panel-3)
 .update-box { display: flex; gap: 16px; align-items: center; }
 .update-box .big-num { font-size: 26px; }
 .danger-zone { border-color: rgba(227, 103, 94, .3); }
+
+/* ---------- your map markers ---------- */
+.map-bar { margin-bottom: 10px; flex-wrap: wrap; }
+.map-bar select { min-width: 170px; }
+.map-marker-tools { display: flex; gap: 6px; }
+.btn.on { border-color: var(--accent-2); color: var(--accent); }
+.viewer.adding, .viewer.adding.dragging { cursor: crosshair; }
+.marker-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: hidden; }
+.marker-pin { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.marker-pin svg { position: absolute; left: -13px; top: -25px; pointer-events: auto; cursor: pointer; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+.marker-pin svg path { fill: var(--pin); stroke: #0b0d0e; stroke-width: 1.4; }
+.marker-pin svg circle { fill: #0b0d0e; }
+.marker-pin.editing svg, .marker-pin.moving svg { transform: scale(1.2); transform-origin: 50% 100%; }
+.marker-pin.moving svg { cursor: grabbing; }
+.marker-label { position: absolute; left: 14px; top: -22px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: #f1ead8; background: rgba(9,11,12,.82); border: 1px solid rgba(255,255,255,.08); padding: 2px 7px; border-radius: 6px; pointer-events: none; }
+.c-yellow { --pin: #e8c75a; } .c-red { --pin: #e3675e; } .c-green { --pin: #7dc480; }
+.c-blue { --pin: #66abd8; } .c-purple { --pin: #a98bd8; } .c-white { --pin: #ece6d6; }
+.marker-editor { position: absolute; z-index: 3; width: 290px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: var(--shadow); padding: 10px; display: flex; flex-direction: column; gap: 8px; cursor: default; }
+.marker-editor[hidden] { display: none; }
+.marker-editor textarea { width: 100%; resize: vertical; min-height: 70px; background: var(--bg-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 9px; font: inherit; font-size: 13px; outline: 0; }
+.marker-editor textarea:focus { border-color: var(--accent-2); }
+.marker-colors { display: flex; gap: 6px; }
+.swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; background: var(--pin); cursor: pointer; padding: 0; }
+.swatch.on { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
+.marker-editor-actions { display: flex; gap: 6px; align-items: center; }
+.marker-list { margin-top: 14px; }
+.marker-list .section-title > span { display: inline-flex; gap: 8px; align-items: center; }
+.marker-row { align-items: center; }
+.marker-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--pin); flex: none; }
+.marker-note { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: var(--text); cursor: pointer; padding: 2px 0; font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.marker-note:hover { color: var(--accent); }
+
+/* the popped-out map window */
+body.popout #app { display: block; }
+.popout-content { height: 100vh; padding: 10px 12px 16px; }
+.viewer.tall { height: calc(100vh - 74px); min-height: 300px; }
+.map-bar .grow, .marker-editor-actions .grow { flex: 1; }

@@ -242,3 +242,15 @@ def test_window_fits_small_and_scaled_screens():
     assert fit_window(WINDOW_SIZE, (1920, 1040), 144) == (1203, 651)      # 1080p laptop at 150%
     assert fit_window(WINDOW_SIZE, (1366, 728), 96) == (1284, 684)        # small screen
     assert fit_window(WINDOW_SIZE, (1920, 1040), 0) == (1480, 940)        # unknown DPI: treated as 96
+
+
+def test_markers_api(webapp, monkeypatch):
+    s = webapp.server
+    published = []
+    monkeypatch.setattr(webapp, "publish", lambda event, data: published.append(event))
+    status, resp, _ = call(s, "/api/markers", "POST", {"op": "add", "image": "customs-2d", "x": 0.5, "y": 0.5, "note": "hi"})
+    assert status == 200 and json.loads(resp)["customs-2d"][0]["note"] == "hi"
+    assert published == ["markers"]
+    assert call(s, "/api/markers", "POST", {"op": "add", "image": "customs-2d", "x": "x", "y": 0})[0] == 400
+    assert body(call(s, "/api/markers"))["customs-2d"][0]["note"] == "hi"
+    assert body(call(s, "/api/bootstrap"))["markers"]["customs-2d"][0]["note"] == "hi"

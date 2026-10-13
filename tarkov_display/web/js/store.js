@@ -6,6 +6,7 @@ export const store = {
   boot: null,
   state: {},
   progress: null,
+  markers: {},    // map image key -> your markers on it
   display: null,
   items: [],
   itemsById: new Map(),
@@ -24,6 +25,7 @@ export async function loadBoot() {
   store.boot = await api("bootstrap");
   store.state = store.boot.state;
   store.progress = store.boot.progress;
+  store.markers = store.boot.markers || {};
   store.display = store.boot.display;
   return store.boot;
 }
@@ -69,6 +71,12 @@ export async function setProgress(op) {
   store.progress = await api("progress", { method: "POST", body: op });
   emit("progress");
   return store.progress;
+}
+
+export async function setMarkers(op) {
+  store.markers = await api("markers", { method: "POST", body: op });
+  emit("markers");
+  return store.markers;
 }
 
 export async function displayChange(op) {

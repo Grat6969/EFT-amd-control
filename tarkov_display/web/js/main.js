@@ -14,6 +14,8 @@ const NAV = [
   ["App", [["display", "Display", "display"], ["settings", "Settings", "settings"]]],
 ];
 const VIEW_NAMES = new Set(NAV.flatMap(([, items]) => items.map((i) => i[0])));
+// A popped-out map window (opened from the Maps page): just the map, no sidebar.
+const POPOUT = new URLSearchParams(location.search).has("popout");
 
 let content, titleEl, subEl, navEl, statusEl, footEl;
 let current = { name: null, cleanup: null };
@@ -29,6 +31,15 @@ function logo() {
 
 function shell() {
   const app = document.getElementById("app");
+  if (POPOUT) {
+    // The rest of the shell is built but never shown, so the code that
+    // updates it works unchanged.
+    [navEl, footEl, titleEl, subEl, statusEl] = ["nav", "div", "h1", "div", "div"].map((t) => h(t));
+    content = h("main.content.popout-content");
+    document.body.classList.add("popout");
+    mount(app, content);
+    return;
+  }
   navEl = h("nav.nav");
   footEl = h("div.side-foot");
   titleEl = h("h1");
@@ -119,7 +130,7 @@ function parseHash() {
   const raw = location.hash.replace(/^#\/?/, "");
   const [path, query] = raw.split("?");
   const [name, ...rest] = path.split("/").filter(Boolean);
-  return { name: VIEW_NAMES.has(name) ? name : "home", rest: rest.map(decodeURIComponent), query: Object.fromEntries(new URLSearchParams(query || "")) };
+  return { name: POPOUT ? "maps" : VIEW_NAMES.has(name) ? name : "home", rest: rest.map(decodeURIComponent), query: Object.fromEntries(new URLSearchParams(query || "")) };
 }
 
 async function route() {
@@ -133,12 +144,12 @@ async function route() {
   const view = mod.default;
   titleEl.textContent = view.title;
   subEl.textContent = view.subtitle || "";
-  document.title = `${view.title} · RaidReady`;
+  document.title = POPOUT ? "Map · RaidReady" : `${view.title} · RaidReady`;
   const root = h("div.view.view-" + name);
   mount(content, root);
   content.scrollTop = 0;
   try {
-    current.cleanup = (await view.render(root, { rest, query })) || null;
+    current.cleanup = (await view.render(root, { rest, query, popout: POPOUT })) || null;
   } catch (e) {
     console.error(e);
     mount(root, h("div.error-box", icon("alert", 20), h("div", h("strong", "Something went wrong on this page"), h("div.muted", String(e.message || e)))));
@@ -160,6 +171,7 @@ function connect() {
   }));
   es.addEventListener("data", json((d) => { invalidate(d.name); emit("data", d.name); }));
   es.addEventListener("progress", json((p) => { store.progress = p; emit("progress"); }));
+  es.addEventListener("markers", json((m) => { store.markers = m; emit("markers"); }));
   es.addEventListener("display", json((d) => { store.display = d; emit("display"); }));
   es.addEventListener("scan", json((s) => {
     store.scans.unshift(s);

@@ -15,6 +15,9 @@ the installer and start RaidReady from the Start menu. Nothing else to install.
   and where to do each objective, with a tick box for each.
 - **Price check in game**: hover over an item and press `Ctrl+Alt+P` for its flea price,
   best trader, price per slot, and whether your quests or hideout still need it.
+- **Your own map markers**: right-click a map to drop a marker with a note (loot spots,
+  key doors, good angles). Pop the map out into its own window to keep it on a second
+  screen. With the game log reader on, it switches to the map you load into.
 - **Everything from [tarkov.dev](https://tarkov.dev)** in one window: live flea and
   trader prices, quests, hideout, barters, crafts, ammo, maps, bosses, traders,
   achievements, server status and goon sightings.
@@ -99,7 +102,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
 | **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
 | **Achievements** | All achievements with rarity and how many players have them; tick off yours |
-| **Maps** | Zoomable 2D/3D map images, bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
+| **Maps** | Zoomable 2D/3D map images with your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
 | **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
 | **Traders** | Restock countdowns, loyalty level requirements, everything each trader sells |
 | **Display** | Display profiles, auto-boost and price-check settings |
