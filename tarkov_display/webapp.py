@@ -138,7 +138,6 @@ class WebApp:
                 "enabled": cfg.scan.hover,
                 "status": app.hover.status if app.hover else ("unavailable on this PC" if cfg.scan.hover else "off"),
             },
-            "ai": {k: app.ai.stats[k] for k in ("reads", "cached", "skipped", "errors", "cost", "lastError", "last")},
             "gameMode": cfg.game_mode,
             "update": {"available": bool(last.get("available")), "latest": last.get("latest")},
             "updating": dict(self.update_status),
@@ -243,49 +242,7 @@ class WebApp:
             "hotkeys": cfg.hotkeys,
             "hotkeysTaken": list(app.hotkeys.failed) if app.hotkeys else [],
             "ocr": self._ocr_engine,
-            "ai": self.ai_state(),
         }
-
-    # -- the AI reader (ai.py) ---------------------------------------------
-
-    def ai_state(self) -> dict:
-        from . import secretstore
-
-        key = self.app.ai_key()
-        return {**self.app.ai.state(), "key": secretstore.mask(key) if key else None}
-
-    def ai_change(self, body) -> dict:
-        from . import ai, secretstore
-
-        if not isinstance(body, dict):
-            raise ValueError("bad request")
-        cfg = self.app.config.ai
-        if "mode" in body:
-            if body["mode"] not in ai.MODES:
-                raise ValueError(f"mode must be one of {', '.join(ai.MODES)}")
-            cfg.mode = body["mode"]
-        if "model" in body:
-            if body["model"] not in ai.MODELS:
-                raise ValueError("unknown model")
-            cfg.model = body["model"]
-        if "key" in body:
-            key = body["key"]
-            if not isinstance(key, str) or len(key) > 400:
-                raise ValueError("bad API key")
-            key = key.strip()
-            if key and (not key.isascii() or any(c.isspace() for c in key)):
-                raise ValueError("that doesn't look like an API key")
-            cfg.key = secretstore.protect(key) if key else ""
-        self.app.save()
-        state = self.display_state()
-        self.publish("display", state)
-        return state
-
-    def ai_test(self) -> dict:
-        try:
-            return {"ok": True, "message": self.app.ai.check()}
-        except Exception as exc:
-            raise ValueError(str(exc)) from None
 
     def display_change(self, op) -> dict:
         if not isinstance(op, dict):
@@ -483,8 +440,7 @@ class WebApp:
         return out
 
     def _scan_entry(self, result) -> dict:
-        entry = {"time": time.time(), "lines": result.lines, "error": result.error, "item": None,
-                 "via": getattr(result, "via", "text"), "aiError": getattr(result, "ai_error", None)}
+        entry = {"time": time.time(), "lines": result.lines, "error": result.error, "item": None}
         if result.match:
             item = result.match.item
             entry.update(item={"id": item.id, "name": item.name, "short": item.short_name},
@@ -518,10 +474,7 @@ class WebApp:
             else:
                 notes = [(label, text, ACCENT) for label, text in needs] or [
                     ("", "Not needed for your open quests or hideout", MUTED)]
-            if getattr(result, "via", "text") == "claude":
-                footer = "Read by Claude"
-            else:
-                footer = f"Read “{result.match.text}” · {result.match.score:.0%} sure"
+            footer = f"Read “{result.match.text}” · {result.match.score:.0%} sure"
             self.popup.show(item.name, f"{item.short_name}  ·  {size}", rows, notes, footer, result.cursor, seconds)
         elif result.error:
             self.popup.show("Price check failed", "", [], [("", result.error, BAD)], "", result.cursor, seconds)

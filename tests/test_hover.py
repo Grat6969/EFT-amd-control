@@ -80,8 +80,6 @@ class Eyes:
         self.full_read = NOTHING  # what a full read gives
         self.busy = 0            # calls to answer "busy" (None) first
         self.fail = None         # an exception to raise
-        self.during_read = None  # something that happens while a read is under way (a slow AI read)
-        self.ai_asks = []        # for each full read: whether Claude could be asked
 
     def _busy(self):
         if self.fail:
@@ -109,17 +107,14 @@ class Eyes:
             return None
         box = found.box
         self.reads.append(box)
-        if self.during_read:
-            self.during_read()
         found = [result for b, _, start, until, result in self.rig.scene.boxes
                  if start <= self.rig.t < until and b[0] < box[2] and box[0] < b[2] and b[1] < box[3] and box[1] < b[3]]
         return next((x for x in found if shows_item(x)), NOTHING)
 
-    def scan(self, mask, ask_ai=True):
+    def scan(self, mask):
         if self._busy():
             return None
         self.scans += 1
-        self.ai_asks.append(ask_ai)
         return self.full_read
 
 
@@ -193,7 +188,6 @@ def test_gives_up_quietly_when_nothing_shows():
     r = Rig()
     r.run(0.35 + LOOK_FOR + 1)
     assert r.shown == [] and r.eyes.reads == [] and r.eyes.scans == 1
-    assert r.eyes.ai_asks == [False]  # the early full read never costs a Claude read
     snapshots = r.eyes.snapshots
     r.run(2)
     assert r.eyes.scans == 1 and r.eyes.snapshots <= snapshots + 7  # only a glance now and then
@@ -225,14 +219,6 @@ def test_stops_after_a_few_boxes_without_a_name():
         r.scene.add(box, start=0.5 + i * 0.2)
     r.run(4)
     assert r.shown == [] and len(r.eyes.reads) == BOX_READS
-
-
-def test_a_slow_read_isnt_shown_after_the_mouse_moved_on():
-    r = Rig()
-    r.scene.add(TOOLTIP, start=0.4, result=named(GPU))
-    r.eyes.during_read = lambda: setattr(r, "pos", (700, 650))  # moved on while Claude was answering
-    r.run(1.5)
-    assert len(r.eyes.reads) == 1 and r.shown == [] and r.leaves == 0
 
 
 def test_no_captures_while_the_mouse_moves():

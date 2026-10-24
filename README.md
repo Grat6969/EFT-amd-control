@@ -16,7 +16,6 @@ the installer and start RaidReady from the Start menu. Nothing else to install.
 - **Price check in game**: hover over an item and press `Ctrl+Alt+P` for its flea price,
   best trader, price per slot, and whether your quests or hideout still need it. Or turn
   on **hover price check** and the price pops up just by resting the mouse on an item.
-  Optionally, let **Claude** (AI) read the names the built-in reader isn't sure of.
 - **Your own map markers**: right-click a map to drop a marker with a note (loot spots,
   key doors, good angles). Pop the map out into its own window to keep it on a second
   screen. With the game log reader on, it switches to the map you load into.
@@ -207,32 +206,7 @@ appears, and it goes away when you move on to the next item.
   second before the first read (change that under **Wait before checking**). Turn it off
   when you don't need it.
 - It uses the same text recognition built into Windows as `Ctrl+Alt+P`, on your PC.
-  Nothing is sent anywhere, unless you turn on the AI reader (below).
-
-### AI reader: Claude reads the name (optional)
-
-If the built-in text reader struggles with some items, let Claude read them. In
-**Display → AI reader**, paste an API key from your own
-[Anthropic account](https://console.anthropic.com/settings/keys) and choose when to use it:
-
-- **When unsure** (recommended): the price check asks Claude only when the text reader
-  didn't read an exact item name. Most checks stay instant and free.
-- **Every check**: Claude reads every price check and hover tooltip. Slower (Claude takes
-  a second or two) and costs more.
-
-When it's used, the app sends Claude only the small image it read: the tooltip, or the
-area around the mouse with the mouse marked. Claude replies with the name, which is looked
-up in the price list as usual, and the popup says "Read by Claude". The default model is
-Claude Opus 5.5 (the most accurate); Claude Sonnet 5.5 and Claude Haiku 5.5 (the fastest
-and cheapest) are in the same menu. Each read is billed to your Anthropic account,
-typically a fraction of a cent; the page shows this session's reads and an estimated cost.
-Answers for the same image are remembered, and there's a cap of 30 reads a minute, so a
-mistake can't run up a bill. If Claude can't be reached, the check uses the text reader's
-answer.
-
-The key is stored encrypted for your Windows account and only ever sent to Anthropic.
-The AI reader comes with the installer and the portable zip; with your own Python it needs
-Python 3.10 or newer (`install.bat` adds it).
+  Nothing is sent anywhere.
 
 If nothing shows up:
 
@@ -329,12 +303,9 @@ What RaidReady does, and doesn't do:
   settings AMD Software changes.
 - The app's window is served from your own PC (127.0.0.1) and only that window can use
   it: every request needs a random key created at start-up.
-- **AI reader** (off unless you add your own Anthropic API key): sends Claude the small
-  image a price check read (the tooltip, or the area around the mouse), only when it's
-  used.
 - It only talks to tarkov.dev, GitHub (for updates and map/wipe data), the image hosts
-  used by tarkov.dev, TarkovTracker if you add a token, and Anthropic if you turn on the
-  AI reader. No accounts, no ads, no tracking.
+  used by tarkov.dev, and TarkovTracker if you add a token. No accounts, no ads, no
+  tracking.
 
 Nobody but Battlestate Games can promise that a third-party tool won't get you banned, and
 their rules can change. Use it at your own risk. The code is on GitHub, so you or anyone else

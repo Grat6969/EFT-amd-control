@@ -1,16 +1,5 @@
-import { api, badge, button, card, debounce, ext, fmt, h, icon, mount, progressBar, segmented, select, toast, toggle } from "../lib.js";
-import { displayChange, emit, on, store } from "../store.js";
-
-const AI_BLURB = {
-  "claude-opus-5-5": "most accurate",
-  "claude-sonnet-5-5": "balanced",
-  "claude-haiku-5-5": "fastest and cheapest",
-};
-
-async function aiChange(body) {
-  store.display = await api("ai", { method: "POST", body });
-  emit("display");
-}
+import { badge, button, card, debounce, fmt, h, icon, mount, progressBar, toast, toggle } from "../lib.js";
+import { displayChange, on, store } from "../store.js";
 
 const SLIDERS = [
   ["brightness", "Brightness", -100, 100, 1, (v) => (v > 0 ? "+" : "") + v],
@@ -174,70 +163,6 @@ export default {
       drawHoverStatus();
     };
 
-    // AI reader card: redrawn when its settings change, not while a key is being typed.
-    const aiBox = h("div");
-    const aiStats = h("div.ai-stats");
-    let aiShown = "";
-    const drawAiStats = () => {
-      const st = store.state.ai || {};
-      if (!st.reads && !st.cached && !st.errors && !st.skipped) return mount(aiStats, h("span.muted", "No AI reads yet this session."));
-      const last = st.last;
-      mount(aiStats,
-        h("div", `This session: ${st.reads} read${st.reads === 1 ? "" : "s"}`,
-          st.cached ? `, ${st.cached} answered from memory` : "", st.skipped ? `, ${st.skipped} skipped (limit)` : "",
-          ` · about $${(st.cost || 0).toFixed(st.cost < 0.01 ? 4 : 2)}`),
-        last ? h("div.muted.small", "Last: ", last.name ? `\u201c${last.name}\u201d` : "no item", ` in ${last.seconds} s, ${fmt.ago(last.time * 1000)}`) : null,
-        st.lastError ? h("div.small.down", st.lastError) : null);
-    };
-    const drawAi = () => {
-      const a = store.display.ai;
-      if (!a) return mount(aiBox, h("div.muted", "Not available in this version."));
-      aiShown = JSON.stringify([a.mode, a.model, a.key, a.ready, a.reason, a.sdk]);
-      const input = h("input", { type: "password", placeholder: "sk-ant-…", autocomplete: "off", spellcheck: "false", style: { width: "240px" } });
-      const save = async () => {
-        if (!input.value.trim()) return toast("Paste your API key first.", { kind: "warn" });
-        try { await aiChange({ key: input.value }); toast("API key saved.", { kind: "good" }); }
-        catch (e) { toast(e.message, { kind: "bad" }); }
-      };
-      input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
-      mount(aiBox,
-        h("div.setting",
-          h("div.setting-text", h("div.setting-title", "Use Claude to read item names"),
-            h("div.setting-desc", "When the built-in text reader isn't sure, or on every check.")),
-          segmented([["off", "Off"], ["unsure", "When unsure"], ["always", "Every check"]], a.mode,
-            (v) => aiChange({ mode: v }).catch((e) => toast(e.message, { kind: "bad" })))),
-        h("div.setting",
-          h("div.setting-text", h("div.setting-title", "Model"),
-            h("div.setting-desc", "Prices per million tokens; a read uses a few hundred.")),
-          select(a.models.map((m) => [m.id, `${m.name}: ${AI_BLURB[m.id] || ""} ($${m.input} in / $${m.output} out)`]), a.model,
-            (v) => aiChange({ model: v }).catch((e) => toast(e.message, { kind: "bad" })), { title: "Model" })),
-        h("div.setting",
-          h("div.setting-text", h("div.setting-title", "Anthropic API key"),
-            h("div.setting-desc", a.key ? h("span", "Saved: ", h("code", a.key)) : "Not set")),
-          h("div", { style: { display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" } },
-            h("div", { style: { display: "flex", gap: "6px" } }, input, button("Save", save, { kind: "small" })),
-            a.key ? h("div", { style: { display: "flex", gap: "6px" } },
-              button("Test", async (ev) => {
-                const b = ev.target.closest("button");
-                b.disabled = true;
-                try { const r = await api("ai/test", { method: "POST", body: {} }); toast(r.message, { kind: "good" }); }
-                catch (e) { toast(e.message, { kind: "bad", timeout: 9000 }); }
-                b.disabled = false;
-              }, { kind: "ghost small" }),
-              button("Remove", () => aiChange({ key: "" }), { kind: "ghost small" })) : null)),
-        a.mode !== "off" ? h("div.ai-status",
-          h("span.status-dot." + (a.ready ? "ok" : "bad")),
-          h("span", a.ready ? `On: ${a.mode === "always" ? "Claude reads every check" : "Claude helps when the text reader isn't sure"}`
-            : `Not working: ${a.reason}`)) : null,
-        aiStats,
-        h("div.muted.small", { style: { marginTop: "10px" } },
-          "Get a key at ", ext("https://console.anthropic.com/settings/keys", "console.anthropic.com"),
-          ". It's stored encrypted for your Windows account and only ever sent to Anthropic. When Claude is used, the price check sends it the small image it read "
-          + "(the tooltip, or the area around the mouse) and nothing else. Each read is billed to your Anthropic account, typically a fraction of a cent. "
-          + "Every check is slower (Claude takes a second or two) and costs more than When unsure."));
-      drawAiStats();
-    };
-
     mount(root,
       h("div.grid.cols-2",
         card("Status", status),
@@ -255,18 +180,15 @@ export default {
       h("div.grid.cols-2",
         card("Auto-boost in dark areas", auto),
         card("Price check", scan)),
-      card("AI reader", aiBox, { sub: "Claude, with your own Anthropic API key" }),
       h("div.note", icon("info", 16), h("div", "If high gamma values are refused, run ", h("code", "enable_full_gamma_range.reg"),
         " from the app folder once and reboot. If something looks wrong, AMD Software → Display → Display Color → Reset.")));
-    drawStatus(); drawProfiles(); drawAuto(); drawScan(); drawAi();
+    drawStatus(); drawProfiles(); drawAuto(); drawScan();
     return on((kind) => {
-      if (kind === "state") { drawStatus(); drawReadout(); drawHoverStatus(); drawAiStats(); }
+      if (kind === "state") { drawStatus(); drawReadout(); drawHoverStatus(); }
       if (kind === "display") {
         drawStatus();
         const d = store.display;
         if (scanShown !== JSON.stringify([d.scan.hover, d.scan.debug, d.ocr, d.hotkeysTaken || [], d.hotkeys])) drawScan();
-        const a = d.ai || {};
-        if (aiShown !== JSON.stringify([a.mode, a.model, a.key, a.ready, a.reason, a.sdk])) drawAi();
         lastEdit = Math.max(lastEdit, slider.touched || 0);
         const changed = shown !== store.display.active + "|" + Object.keys(store.display.profiles).join(",");
         if (changed || Date.now() - lastEdit > 1500) { drawProfiles(); drawAuto(); }

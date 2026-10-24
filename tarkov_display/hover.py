@@ -94,8 +94,8 @@ class ScannerEyes:
     def read(self, found: Found, area: Area, mask):
         return self.use(lambda s: s.read_tooltip(found.box, area.cursor, area.k, mask, found.keep))
 
-    def scan(self, mask, ask_ai: bool = True):
-        return self.use(lambda s: s.scan(mask=mask, quiet=True, strict=True, ask_ai=ask_ai))
+    def scan(self, mask):
+        return self.use(lambda s: s.scan(mask=mask, quiet=True, strict=True))
 
 
 class HoverWatcher:
@@ -229,9 +229,8 @@ class HoverWatcher:
         if not rest.early_read and unchanged:
             # Nothing has appeared: the tooltip may have been up before the
             # mouse even stopped. A full read, trusting only names that can't
-            # be grid labels. Not worth asking Claude: usually the tooltip just
-            # hasn't shown yet, and the grid's labels are always there.
-            result = eyes.scan(rest.masks, ask_ai=False)
+            # be grid labels.
+            result = eyes.scan(rest.masks)
             if result is not None:
                 rest.early_read = True
                 self._result(rest, result)
@@ -249,14 +248,8 @@ class HoverWatcher:
         self._set_on()
         if shows_item(result):
             rest.done = True
-            if self._moved_away(rest):
-                return  # a slow read (Claude can take a second or two): the mouse has moved on
             self.shown_at = rest.anchor
             self.on_result(result)
-
-    def _moved_away(self, rest: Rest) -> bool:
-        p = self.pointer()
-        return p is None or _far((p[0], p[1]), rest.anchor, LEAVE_PX * max(1.0, p[2]))
 
     def _restart(self, rest: Rest, cur: bytes, now: float) -> None:
         """The screen under the mouse changed (the stash scrolled, a window
