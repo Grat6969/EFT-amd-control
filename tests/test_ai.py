@@ -3,6 +3,7 @@
 import base64
 import json
 import struct
+import sys
 import threading
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -298,7 +299,10 @@ def test_ai_settings_api(webapp, monkeypatch):
     state = body(call(s, "/api/ai", "POST", {"mode": "unsure", "model": "claude-haiku-5-5", "key": " sk-ant-api03-abcdef123456 "}))
     a = state["ai"]
     assert (a["mode"], a["model"], a["key"]) == ("unsure", "claude-haiku-5-5", "sk-a…3456")
-    assert webapp.app.config.ai.key.endswith("sk-ant-api03-abcdef123456") and webapp.app.ai_key() == "sk-ant-api03-abcdef123456"
+    stored = webapp.app.config.ai.key
+    assert stored.startswith(("dpapi:", "plain:")) and webapp.app.ai_key() == "sk-ant-api03-abcdef123456"
+    if sys.platform == "win32":
+        assert "abcdef123456" not in stored  # encrypted for this Windows account
     assert not a["ready"] and "SDK" in a["reason"]
     for bad in ({"mode": "sometimes"}, {"model": "gpt"}, {"key": "has spaces in it"}, {"key": 5}):
         assert call(s, "/api/ai", "POST", bad)[0] == 400
