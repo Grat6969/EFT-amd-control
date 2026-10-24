@@ -9,7 +9,8 @@ from typing import Dict, List, Optional, Sequence
 from .prices import Item, normalize
 
 MIN_SCORE = 0.72
-FULL_NAME_SCORE = 0.9  # a full-name match this good is the hover tooltip
+FULL_NAME_SCORE = 0.9  # a full-name match this good is the hover tooltip...
+TOOLTIP_SCORE = 0.8    # ... and this good, when the text is known to come from the tooltip
 
 
 @dataclass
@@ -18,6 +19,7 @@ class Match:
     score: float
     text: str
     full: bool = False  # matched the full name (only the tooltip shows it), not the short name
+    key: str = ""       # the (normalized) name or short name that matched
 
 
 class ItemMatcher:
@@ -37,48 +39,69 @@ class ItemMatcher:
         if len(line) < 2:
             return None
         if line in self.by_name:
-            return Match(self.by_name[line], 1.0, text, full=True)
+            return Match(self.by_name[line], 1.0, text, full=True, key=line)
         if line in self.by_short:
-            return Match(self.by_short[line], 0.98, text)
+            return Match(self.by_short[line], 0.98, text, key=line)
 
         best: Optional[Match] = None
         # The tooltip line can carry extra text around the name.
         if len(line) >= 6:
             for name in self.names:
                 if len(name) >= 6 and name in line:
-                    best = Match(self.by_name[name], 0.95, text, full=True)
+                    best = Match(self.by_name[name], 0.95, text, full=True, key=name)
                     break  # names are sorted longest first
         if best is None:
             close = difflib.get_close_matches(line, self.names, n=1, cutoff=MIN_SCORE)
             if close:
                 score = difflib.SequenceMatcher(None, line, close[0]).ratio()
-                best = Match(self.by_name[close[0]], score, text, full=True)
+                best = Match(self.by_name[close[0]], score, text, full=True, key=close[0])
         if len(line) >= 3:
             close = difflib.get_close_matches(line, self.shorts, n=1, cutoff=0.8)
             if close:
                 score = difflib.SequenceMatcher(None, line, close[0]).ratio() * 0.95
                 if best is None or score > best.score:
-                    best = Match(self.by_short[close[0]], score, text)
+                    best = Match(self.by_short[close[0]], score, text, key=close[0])
         return best
 
-    def match_lines(self, lines: Sequence[str]) -> Optional[Match]:
+    def ambiguous(self, m: Match) -> bool:
+        """Could this full-name match be a grid label? Many items' short names
+        (Toolset, Bolts, Pliers...) are also full names, printed on the grid."""
+        return m.key in self.by_short
+
+    def match_lines(self, lines: Sequence[str], strict: bool = False) -> Optional[Match]:
         """Pick the item for OCR lines ordered nearest-to-cursor first.
 
         Only the hover tooltip shows an item's full name; the grid shows
         short names. So the nearest good full-name match wins, even over a
-        neighbouring item's short name closer to the cursor. Without one,
-        the nearest confident match wins over a slightly better one further
-        away.
+        neighbouring item's short name closer to the cursor, and a full name
+        that isn't also some item's short name wins over one that is (that
+        one may be a neighbour's label). Without one, the nearest confident
+        match wins over a slightly better one further away. ``strict`` (hover
+        checks that couldn't find the tooltip): only a full name that can't
+        be a grid label counts.
         """
         matches = [m for m in (self.match_line(text) for text in lines) if m is not None]
-        for m in matches:
-            if m.full and m.score >= FULL_NAME_SCORE:
+        full = [m for m in matches if m.full and m.score >= FULL_NAME_SCORE]
+        for m in full:
+            if not self.ambiguous(m):
                 return m
+        if strict:
+            return None
+        if full:
+            return full[0]
         for m in matches:
             if m.score >= 0.95:
                 return m
         best = max(matches, key=lambda m: m.score, default=None)
         return best if best and best.score >= MIN_SCORE else None
+
+    def match_tooltip(self, lines: Sequence[str]) -> Optional[Match]:
+        """The item named by text read from the tooltip box: the best full-name
+        match, even a slightly misread one. Short names don't count (the
+        tooltip shows full names; a short name means something else was read)."""
+        matches = [m for m in (self.match_line(text) for text in lines) if m is not None and m.full]
+        best = max(matches, key=lambda m: m.score, default=None)
+        return best if best and best.score >= TOOLTIP_SCORE else None
 
 
 def candidate_lines(lines: List[str]) -> List[str]:

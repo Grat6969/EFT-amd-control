@@ -148,7 +148,7 @@ export default {
         h("div.muted.small", { style: { margin: "6px 0 8px" } },
           "No key needed: while Tarkov is focused and the mouse pointer is showing (menus, stash, inventory), the price pops up "
           + "when the mouse stops on an item and its name tooltip shows, and goes away when you move on. Ctrl+Alt+H turns it on and off in game. "
-          + "It takes a screenshot around the mouse each time it stops, so leave it off if you don't use it."),
+          + "It takes small screenshots around the mouse each time it stops, until the tooltip shows, so leave it off if you don't use it."),
         hoverStatus,
         s.hover ? slider("Wait before checking", s.hover_delay, [0.15, 1, 0.05], (v) => `${Number(v).toFixed(2)} s`,
           debounce((v) => displayChange({ op: "scan", settings: { hover_delay: v } }), 300),

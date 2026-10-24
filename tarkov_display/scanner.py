@@ -3,11 +3,13 @@
 Runs only when you press the hotkey, or with hover price check on when the
 mouse rests on something in Tarkov (see hover.py): one screenshot of the
 area around the cursor, read with OCR, matched against the tarkov.dev item
-list.
+list. Hover price check also takes small snapshots of that area to spot the
+game's tooltip appearing (see tooltip.py), then reads just the tooltip.
 """
 
 from __future__ import annotations
 
+import itertools
 import logging
 import time
 from dataclasses import dataclass, field
@@ -18,9 +20,15 @@ from .matching import ItemMatcher, Match, candidate_lines
 from .ocr import create_ocr, order_by_distance
 from .prices import PriceDB
 from .profiles import ScanConfig
-from .screen import ScreenSampler, blank_area, to_bmp
+from .screen import ScreenSampler, to_bmp
+from .tooltip import Area, Box, blank_boxes, keep_only
 
 log = logging.getLogger(__name__)
+
+Mask = Tuple[int, int, int, int]  # left, top, width, height on screen
+TOOLTIP_MARGIN = 6  # pixels (at 1080p) read around the tooltip box
+TOOLTIP_SCALE = 3   # enlarge the tooltip this much before OCR: its text is small
+_saves = itertools.count()
 
 
 @dataclass
@@ -65,10 +73,11 @@ class ItemScanner:
             self._matcher_for = items
         return self._matcher
 
-    def scan(self, mask: Iterable[Tuple[int, int, int, int]] = (), quiet: bool = False) -> ScanResult:
-        """Check the item under the cursor. ``mask``: screen boxes (left, top,
-        width, height) to leave out of the capture, such as our own popup.
-        ``quiet``: log the result only in the debug log (hover checks)."""
+    def scan(self, mask: Iterable[Mask] = (), quiet: bool = False, strict: bool = False) -> ScanResult:
+        """Check the item under the cursor. ``mask``: screen boxes to leave out
+        of the capture, such as our own popup. ``quiet``: log the result only
+        in the debug log (hover checks). ``strict``: only accept a full name
+        that can't be a grid label (hover checks that didn't find the tooltip)."""
         if not self.prices.items:
             return ScanResult(None, error="Prices not downloaded yet (check your internet connection).")
         cursor = self.screen.cursor_pos()
@@ -79,25 +88,67 @@ class ItemScanner:
             bgra, iw, ih = self.screen.grab(x, y, w, h, scale)
         except OSError as exc:
             return ScanResult(None, cursor=cursor, error=str(exc))
-        for mx, my, mw, mh in mask:
-            bgra = blank_area(bgra, iw, ih, (mx - x) * scale, (my - y) * scale, (mx + mw - x) * scale, (my + mh - y) * scale)
+        bgra = blank_boxes(bgra, iw, ih, (x, y), mask, scale)
 
         lines = order_by_distance(self.ocr.read(bgra, iw, ih), cx * scale, cy * scale)
         texts = [l.text for l in lines]
-        match = self.matcher().match_lines(candidate_lines(texts))
-        result = ScanResult(match, texts, cursor)
+        match = self.matcher().match_lines(candidate_lines(texts), strict=strict)
+        return self._done(ScanResult(match, texts, cursor), bgra, iw, ih, quiet, "hover" if strict else "scan")
+
+    # -- hover price check ------------------------------------------------------
+
+    def area_at(self, cursor: Tuple[int, int]) -> Area:
+        """The area a check around ``cursor`` reads."""
+        screen_h = self.screen.target_rect()[3]
+        x, y, w, h, _, _ = capture_rect(cursor, screen_h, self.cfg)
+        return Area(x, y, w, h, tuple(cursor), max(0.5, screen_h / 1080.0))
+
+    def snapshot(self, area: Area, mask: Iterable[Mask] = ()) -> bytes:
+        """A plain capture of ``area`` (for spotting what changes in it)."""
+        bgra, w, h = self.screen.grab(area.x, area.y, area.w, area.h, 1)
+        return blank_boxes(bgra, w, h, (area.x, area.y), mask)
+
+    def read_tooltip(self, box: Box, cursor: Tuple[int, int], k: float = 1.0, mask: Iterable[Mask] = (),
+                     keep: Iterable[Mask] = ()) -> ScanResult:
+        """Read the item name from the tooltip at ``box`` (left, top, right,
+        bottom on screen). The text is known to be the tooltip, so a slightly
+        misread full name still counts. ``keep``: if given, only these parts
+        of the screen are read (the parts that changed when it appeared)."""
+        if not self.prices.items:
+            return ScanResult(None, error="Prices not downloaded yet (check your internet connection).")
+        m = int(TOOLTIP_MARGIN * max(1.0, k))
+        x, y = box[0] - m, box[1] - m
+        w, h = box[2] - box[0] + 2 * m, box[3] - box[1] + 2 * m
+        scale = ocr_scale(TOOLTIP_SCALE, w, h, getattr(self.ocr, "max_dimension", 2600))
+        try:
+            bgra, iw, ih = self.screen.grab(x, y, w, h, scale)
+        except OSError as exc:
+            return ScanResult(None, cursor=cursor, error=str(exc))
+        keep = list(keep)
+        if keep:
+            bgra = keep_only(bgra, iw, ih, (x, y), keep, scale)
+        bgra = blank_boxes(bgra, iw, ih, (x, y), mask, scale)
+        texts = [l.text for l in sorted(self.ocr.read(bgra, iw, ih), key=lambda l: (l.y, l.x))]
+        match = self.matcher().match_tooltip(candidate_lines(texts))
+        return self._done(ScanResult(match, texts, cursor), bgra, iw, ih, True, "tooltip")
+
+    # -- results ------------------------------------------------------------------
+
+    def _done(self, result: ScanResult, bgra: bytes, w: int, h: int, quiet: bool, kind: str) -> ScanResult:
+        match = result.match
         if self.cfg.debug and self.debug_dir:
-            result.debug_file = self._save_debug(bgra, iw, ih, result)
+            result.debug_file = self._save_debug(bgra, w, h, result, kind)
         say = log.debug if quiet else log.info
         if match:
-            say("Scan: %r -> %s (%.0f%%)", match.text, match.item.name, match.score * 100)
+            say("%s: %r -> %s (%.0f%%)", kind.title(), match.text, match.item.name, match.score * 100)
         else:
-            say("Scan: no item matched. OCR read: %s", texts)
+            say("%s: no item matched. OCR read: %s", kind.title(), result.lines)
         return result
 
-    def _save_debug(self, bgra: bytes, w: int, h: int, result: ScanResult) -> Path:
+    def _save_debug(self, bgra: bytes, w: int, h: int, result: ScanResult, kind: str = "scan") -> Path:
         self.debug_dir.mkdir(parents=True, exist_ok=True)
-        stem = self.debug_dir / time.strftime("scan_%Y%m%d_%H%M%S")
+        # Hover checks can save several a second: number them.
+        stem = self.debug_dir / f"{kind}_{time.strftime('%Y%m%d_%H%M%S')}_{next(_saves) % 1000:03d}"
         stem.with_suffix(".bmp").write_bytes(to_bmp(bgra, w, h))
         found = f"{result.match.item.name} ({result.match.score:.0%})" if result.match else "no match"
         stem.with_suffix(".txt").write_text("\n".join(result.lines) + f"\n\n-> {found}\n", encoding="utf-8")

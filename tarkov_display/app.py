@@ -116,11 +116,12 @@ class App:
         if result is not None:
             self.scan_results.put(result)
 
-    def scan_now(self, wait: bool = False, quiet: bool = False):
-        """Price-check the item under the cursor now. One check runs at a time:
-        with ``wait``, waits for a running one to finish (Ctrl+Alt+P), else
-        returns None at once (hover checks just try again a moment later)."""
-        from .scanner import ItemScanner, ScanResult
+    def use_scanner(self, fn: Callable, wait: bool = False):
+        """Run ``fn(scanner)``, one use of the screen reader at a time: with
+        ``wait``, waits for a running one to finish (Ctrl+Alt+P), else returns
+        None at once (hover checks just try again a moment later). Errors,
+        such as no text reader being installed, are raised."""
+        from .scanner import ItemScanner
 
         got = self._scanning.acquire(timeout=5) if wait else self._scanning.acquire(blocking=False)
         if not got:
@@ -128,13 +129,20 @@ class App:
         try:
             if self.scanner is None:
                 self.scanner = ItemScanner(self.prices, self.config.scan, self.config_path.parent / "scans")
-            popup = self.popup_rect()
-            return self.scanner.scan(mask=[popup] if popup else (), quiet=quiet)
+            return fn(self.scanner)
+        finally:
+            self._scanning.release()
+
+    def scan_now(self, wait: bool = False, quiet: bool = False):
+        """Price-check the item under the cursor now (None if busy, see use_scanner)."""
+        from .scanner import ScanResult
+
+        popup = self.popup_rect()
+        try:
+            return self.use_scanner(lambda s: s.scan(mask=[popup] if popup else (), quiet=quiet), wait)
         except Exception as exc:
             (log.debug if quiet else log.warning)("Scan failed: %s", exc)
             return ScanResult(None, error=str(exc))
-        finally:
-            self._scanning.release()
 
     def start(self) -> None:
         self.watcher.start()
@@ -148,13 +156,14 @@ class App:
                                    on_toggle_hover=self.toggle_hover)
             self.hotkeys.start()
         try:
-            from .hover import GameFocus, HoverWatcher, win_pointer
+            from .hover import GameFocus, HoverWatcher, ScannerEyes, win_pointer
 
             # Idles until hover price check is turned on.
             self.hover = HoverWatcher(
                 lambda: self.config.scan, GameFocus(lambda: self.config.process_names), win_pointer(),
-                lambda: self.scan_now(quiet=True),
-                on_result=lambda result: self.on_hover_result(result), on_leave=lambda: self.on_hover_leave())
+                ScannerEyes(self.use_scanner),
+                on_result=lambda result: self.on_hover_result(result), on_leave=lambda: self.on_hover_leave(),
+                popup_rect=lambda: self.popup_rect())
             self.hover.start()
         except Exception as exc:  # the rest of the app works without it
             log.warning("Hover price check unavailable: %s", exc)

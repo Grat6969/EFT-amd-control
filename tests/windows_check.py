@@ -215,20 +215,26 @@ def _():
     return f"pointer: {pointer or 'hidden or outside the focused window'}"
 
 
-@check("hover price check end to end: rest, read the tooltip, leave our popup out, hide")
+@check("hover price check end to end: a late tooltip among same-name grid labels, our popup left out")
 def _():
     import ctypes
     import tkinter as tk
 
-    from tarkov_display.hover import HoverWatcher
+    from tarkov_display.hover import HoverWatcher, ScannerEyes
+    from tarkov_display.matching import FULL_NAME_SCORE
     from tarkov_display.ocr import OcrUnavailable
     from tarkov_display.popup import make_dpi_aware
+    from tarkov_display.prices import Item, PriceDB
     from tarkov_display.profiles import ScanConfig
     from tarkov_display.scanner import ItemScanner
 
     make_dpi_aware()
+    db = PriceDB()  # items whose short name is also a full name, like Toolset, are the tricky ones
+    db.set_items([Item("gpu", "Graphics card", "GPU"), Item("toolset", "Toolset", "Toolset"),
+                  Item("bolts", "Bolts", "Bolts"), Item("pliers", "Pliers", "Pliers"),
+                  Item("ledx", "LEDX Skin Transilluminator", "LEDX")])
     try:
-        scanner = ItemScanner(price_db(), ScanConfig())
+        scanner = ItemScanner(db, ScanConfig())
     except OcrUnavailable as exc:
         raise Skip(str(exc))
     try:
@@ -236,36 +242,52 @@ def _():
     except tk.TclError as exc:
         raise Skip(f"no display: {exc}")
 
-    def window(parent, text, where):
-        win = parent if parent is root else tk.Toplevel(root)
+    def window(text, where, size=13, win=None):
+        win = win or tk.Toplevel(root)
         win.overrideredirect(True)
         win.attributes("-topmost", True)
         win.configure(bg="#1a1a1a")
-        tk.Label(win, text=text, fg="#dcdcd2", bg="#1a1a1a", font=("Bahnschrift", 13)).pack(padx=12, pady=6)
+        tk.Label(win, text=text, fg="#dcdcd2", bg="#1a1a1a", font=("Bahnschrift", size)).pack(padx=10, pady=4)
         win.geometry(where)
         return win
 
-    window(root, "Graphics card", "+420+400")                       # the game's tooltip, beside the mouse
-    decoy = window(None, "LEDX Skin Transilluminator", "+300+360")  # "our popup", nearer the mouse
-    cfg = ScanConfig(hover=True, hover_delay=0.3)
+    root.overrideredirect(True)  # the stash: a still background with grid labels (short names)
+    root.attributes("-topmost", True)
+    root.configure(bg="#2b2b2b")
+    root.geometry("560x170+250+330")
+    for text, x, y in (("GPU", 180, 22), ("Toolset", 100, 88), ("Bolts", 270, 22), ("Pliers", 350, 22)):
+        tk.Label(root, text=text, fg="#cfcfcf", bg="#2b2b2b", font=("Bahnschrift", 10)).place(x=x, y=y)
+    popup = window("LEDX Skin Transilluminator", "+330+372")  # stands in for our own popup, nearer the mouse
+    tooltip = window("Graphics card", "+415+425")              # the game's tooltip: shows 0.6 s after the mouse stops
+    tooltip.withdraw()
     out = {"shown": [], "leaves": 0}
 
     def run():
         root.update()
-        mask = (decoy.winfo_rootx() - 4, decoy.winfo_rooty() - 4, decoy.winfo_width() + 8, decoy.winfo_height() + 8)
+        mask = (popup.winfo_rootx() - 4, popup.winfo_rooty() - 4, popup.winfo_width() + 8, popup.winfo_height() + 8)
+        cfg = ScanConfig(hover=True, hover_delay=0.3)
         watcher = HoverWatcher(lambda: cfg, lambda: True, lambda: (*scanner.screen.cursor_pos(), 1.0),
-                               lambda: scanner.scan(mask=[mask], quiet=True),
-                               out["shown"].append, lambda: out.__setitem__("leaves", out["leaves"] + 1))
+                               ScannerEyes(lambda fn: fn(scanner)), out["shown"].append,
+                               lambda: out.__setitem__("leaves", out["leaves"] + 1), popup_rect=lambda: mask)
         try:
             ctypes.windll.user32.SetCursorPos(400, 410)
-            for _ in range(40):
+            started, appeared = time.monotonic(), None
+            while time.monotonic() - started < 4 and not out["shown"]:
+                if appeared is None and time.monotonic() - started >= 0.6:
+                    old = scanner.scan(mask=[mask])  # what's readable before the tooltip
+                    out["before"] = old.lines
+                    tooltip.deiconify()
+                    root.update()
+                    appeared = time.monotonic()
                 watcher.step()
-                if out["shown"]:
-                    break
                 time.sleep(0.08)
-            unmasked = scanner.scan()
-            out["unmasked"] = unmasked.match.item.id if unmasked.match else None
-            ctypes.windll.user32.SetCursorPos(400, 520)  # move on
+            out["after_tooltip"] = bool(out["shown"]) and appeared is not None
+            # What v1.7.0 did: the nearest full name won, grid labels included.
+            m = scanner.matcher()
+            first = next((x for x in (m.match_line(t) for t in out.get("before", []))
+                          if x and x.full and x.score >= FULL_NAME_SCORE), None)
+            out["old"] = first.item.id if first else None
+            ctypes.windll.user32.SetCursorPos(400, 560)  # move on
             for _ in range(3):
                 watcher.step()
                 time.sleep(0.08)
@@ -280,11 +302,12 @@ def _():
     if "error" in out:
         raise AssertionError(out["error"])
     shown = [r.match.item.id for r in out["shown"]]
-    if not shown and out.get("unmasked") is None:
+    if not shown and not out.get("before"):
         raise Skip("nothing read: screen capture may return a blank image on this machine")
-    assert shown == ["gpu"], f"hover showed {shown} (status: {out.get('status')})"
+    assert shown == ["gpu"], f"hover showed {shown} (status: {out.get('status')}; read before the tooltip: {out.get('before')})"
+    assert out["after_tooltip"], "it showed a price before the tooltip appeared"
     assert out["leaves"] == 1, "moving the mouse away didn't hide the price"
-    return f"showed {shown[0]}; without leaving our popup out it would have read {out['unmasked']}"
+    return f"showed gpu once the tooltip appeared; v1.7.0's rule would have shown {out['old']} (read: {out['before']})"
 
 
 def main() -> int:

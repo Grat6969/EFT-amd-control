@@ -195,12 +195,16 @@ appears, and it goes away when you move on to the next item.
 - It only runs while a Tarkov window is focused and the mouse pointer is showing
   (menus, stash, inventory, traders). The game hides the pointer while you play a raid,
   so nothing pops up mid-fight.
-- A price shows only when the item's **full name** is read. Only Tarkov's hover tooltip
-  shows full names (the grid shows short ones), so menu text and neighbouring items
-  don't set it off. If it doesn't show for an item, `Ctrl+Alt+P` still works.
-- It takes a screenshot around the mouse each time the mouse stops (it waits about a
-  third of a second; change that under **Wait before checking**). Turn it off when you
-  don't need it.
+- It waits for the game's name tooltip to **appear** and reads only that. Many items'
+  short names, printed on the grid (Toolset, Bolts, Pliers...), are also full names, and
+  a neighbour's label can be nearer the mouse than the tooltip; watching what appears
+  after the mouse stops tells them apart. If the game was already showing the tooltip,
+  it trusts only a name that can't be a grid label. If nothing shows for an item,
+  `Ctrl+Alt+P` still works.
+- Once the mouse stops, it takes small screenshots around it for up to about a second
+  and a half, until the tooltip has appeared, then reads it. It waits about a third of a
+  second before the first read (change that under **Wait before checking**). Turn it off
+  when you don't need it.
 - It uses the same text recognition built into Windows as `Ctrl+Alt+P`, on your PC.
   Nothing is sent anywhere.
 
@@ -289,9 +293,9 @@ What RaidReady does, and doesn't do:
   never changes the game's files.
 - **Price check**: takes one screenshot around the mouse when you press `Ctrl+Alt+P` and
   reads the item name with Windows' built-in text recognition, the way tools like
-  RatScanner do. **Hover price check** (off by default) does the same each time the mouse
-  stops while Tarkov is focused and the pointer is showing. Neither presses keys or
-  clicks for you.
+  RatScanner do. **Hover price check** (off by default) takes small screenshots around
+  the mouse each time it stops while Tarkov is focused and the pointer is showing, to
+  spot and read the item's tooltip. Neither presses keys or clicks for you.
 - **Auto-boost** (off by default): looks at 5 small patches of the screen a few times a
   second to tell when the scene is dark.
 - **Game log reader** (off by default): reads the text log files Tarkov writes, read-only.

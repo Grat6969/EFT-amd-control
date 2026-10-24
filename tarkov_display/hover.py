@@ -3,12 +3,18 @@ you turn it on, in the app or with Ctrl+Alt+H).
 
 While a Tarkov window is focused and the mouse pointer is showing (the game
 hides it while you play a raid, and shows it in menus and the inventory),
-each time the pointer stops over something for a moment the app runs the
-same price check as Ctrl+Alt+P: one screenshot around the pointer, read
-with Windows' text recognition. A price is shown only when an item's full
-name was read, which only the game's hover tooltip shows, so menu text and
-the short names printed on the grid don't pop anything up. Moving the mouse
-away hides the price again.
+each time the pointer stops over something the app looks for the game's
+item tooltip and reads the name in it, with Windows' text recognition.
+
+Text alone can't tell the tooltip from the names printed on the grid (many
+short names, like Toolset or Bolts, are also full names, and a neighbour's
+label can be nearer the mouse than the tooltip). So the app snapshots the
+area around the pointer as soon as it stops and watches for a box that
+appears near the pointer and settles: that's the tooltip, wherever the game
+draws it and however long it takes (see tooltip.py). Only that box is read.
+If no box appears, one full read accepts only a full name that can't be a
+grid label. Moving the mouse away, or scrolling the stash under it, hides
+the price again.
 """
 
 from __future__ import annotations
@@ -18,10 +24,12 @@ import logging
 import math
 import threading
 import time
-from typing import Callable, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Callable, List, Optional, Tuple
 
-from .matching import FULL_NAME_SCORE
 from .profiles import ScanConfig
+from .tooltip import (CHANGED_SHARE, SCREEN_CHANGED, Area, Box, Found, blank_boxes, changed_share, find_tooltips,
+                      overlaps)
 
 log = logging.getLogger(__name__)
 
@@ -30,28 +38,69 @@ Pointer = Tuple[int, int, float]  # x, y, and the game window's height / 1080 (t
 POLL = 0.08          # seconds between looks at the pointer while on
 IDLE_POLL = 0.5      # ... and while off
 STILL_PX = 4         # the pointer counts as resting while it moves less than this (at 1080p)
+STEADY_PX = 1        # ... and as stopped (for the first snapshot) if it moved no more than this since the last look
 LEAVE_PX = 16        # moving this far from where a price was shown hides it
-RETRY_AFTER = 0.6    # a second look at the same spot, in case the tooltip wasn't up yet
-TRIES = 2
+LOOK_FOR = 1.2       # after the wait, how long to watch for the tooltip at one spot
+BOX_READS = 4        # boxes read at one spot without finding a name, before giving up there
+RESTARTS = 4         # screen changes at one spot before treating it as moving scenery
+RECHECK_EVERY = 4    # once done at a spot, glance at it every this many looks (in case it scrolls)
 CURSOR_SHOWING = 0x1
 
 
-def is_tooltip_match(result) -> bool:
-    """Did the check read an item's full name (which only the hover tooltip shows)?"""
+def shows_item(result) -> bool:
+    """Did a check name an item from its full name (which only the tooltip shows)?
+    The scanner decides how sure it has to be (see matching.py)."""
     match = getattr(result, "match", None)
-    return bool(match and match.full and match.score >= FULL_NAME_SCORE)
+    return bool(match and match.full)
 
 
 def _far(a, b, limit: float) -> bool:
     return math.hypot(a[0] - b[0], a[1] - b[1]) > limit
 
 
-class HoverWatcher:
-    """Watches the pointer and runs ``scan`` when it rests (see the module docs).
+@dataclass
+class Rest:
+    """The mouse resting at one spot, and what's been seen there."""
 
-    ``scan`` returns a scan result, or None when another check is running.
-    ``on_result`` gets results that read a tooltip; ``on_leave`` is called
-    when the pointer moves away from where the last one was shown.
+    anchor: Tuple[int, int]
+    since: float
+    area: Optional[Area] = None
+    base: Optional[bytes] = None   # snapshot taken as soon as the mouse stopped
+    prev: Optional[bytes] = None   # the latest snapshot
+    masks: List[tuple] = field(default_factory=list)  # our popups, left out of every snapshot
+    tried: List[Box] = field(default_factory=list)    # boxes read without finding a name
+    early_read: bool = False       # the full read for a tooltip that was up before the mouse stopped
+    restarts: int = 0
+    looks: int = 0
+    done: bool = False
+
+
+class ScannerEyes:
+    """What hover price check needs from the price-check scanner (scanner.py).
+    Each call returns None while another check is using the screen reader."""
+
+    def __init__(self, use: Callable) -> None:
+        self.use = use  # App.use_scanner
+
+    def area(self, cursor):
+        return self.use(lambda s: s.area_at(cursor))
+
+    def snapshot(self, area: Area, mask):
+        return self.use(lambda s: s.snapshot(area, mask))
+
+    def read(self, found: Found, area: Area, mask):
+        return self.use(lambda s: s.read_tooltip(found.box, area.cursor, area.k, mask, found.keep))
+
+    def scan(self, mask):
+        return self.use(lambda s: s.scan(mask=mask, quiet=True, strict=True))
+
+
+class HoverWatcher:
+    """Watches the pointer and checks the item it rests on (see the module docs).
+
+    ``eyes`` reads the screen (ScannerEyes). ``on_result`` gets checks that
+    named an item; ``on_leave`` is called when the price shown should go
+    away. ``popup_rect`` gives our popup's place on screen, if one is up.
     """
 
     def __init__(
@@ -59,29 +108,33 @@ class HoverWatcher:
         cfg: Callable[[], ScanConfig],
         game_focused: Callable[[], bool],
         pointer: Callable[[], Optional[Pointer]],
-        scan: Callable[[], object],
+        eyes,
         on_result: Callable[[object], None],
         on_leave: Callable[[], None],
+        popup_rect: Callable[[], Optional[tuple]] = lambda: None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.cfg = cfg
         self.game_focused = game_focused
         self.pointer = pointer
-        self.scan = scan
+        self.eyes = eyes
         self.on_result = on_result
         self.on_leave = on_leave
+        self.popup_rect = popup_rect
         self.clock = clock
         self.status = "off"
-        self.anchor: Optional[Tuple[int, int]] = None  # where the pointer is resting
-        self.since = 0.0                               # ... since when
-        self.tries = 0                                 # checks done at this spot
-        self.shown_at: Optional[Tuple[int, int]] = None
         self.error: Optional[str] = None
+        self.rest: Optional[Rest] = None
+        self.shown_at: Optional[Tuple[int, int]] = None
+        self._last: Optional[Tuple[int, int]] = None  # the pointer at the last look
+        self._logged: Optional[str] = None
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
+    # -- one look ---------------------------------------------------------------
+
     def step(self) -> None:
-        """Look at the pointer once and check the item if it has come to rest."""
+        """Look at the pointer once, and at the screen if it's resting."""
         cfg = self.cfg()
         if not cfg.hover:
             return self._idle("off")
@@ -94,23 +147,125 @@ class HoverWatcher:
         k = max(1.0, k)
         now = self.clock()
         self._set_on()
-        if self.anchor is None or _far((x, y), self.anchor, STILL_PX * k):
-            self.anchor, self.since, self.tries = (x, y), now, 0
+        steady = self._last is not None and not _far((x, y), self._last, STEADY_PX * k)
+        self._last = (x, y)
+        if self.rest is None or _far((x, y), self.rest.anchor, STILL_PX * k):
+            self.rest = Rest((x, y), now)
         if self.shown_at is not None and _far((x, y), self.shown_at, LEAVE_PX * k):
-            self.forget()
-            self.on_leave()
-        if self.tries >= TRIES or now < self.since + cfg.hover_delay + self.tries * RETRY_AFTER:
+            self._leave()
+        rest = self.rest
+        try:
+            self._look(rest, cfg, now, steady)
+        except Exception as exc:  # e.g. no text reader installed: say so, try again after the mouse moves
+            rest.done = True
+            self.error = str(exc) or type(exc).__name__
+            self._set_on()
+            if self.error != self._logged:
+                log.warning("Hover price check: %s", self.error, exc_info=True)
+                self._logged = self.error
+
+    def _look(self, rest: Rest, cfg: ScanConfig, now: float, steady: bool = True) -> None:
+        eyes = self.eyes
+        rest.looks += 1
+        if rest.done:
+            if rest.base is not None and rest.looks % RECHECK_EVERY == 0:
+                self._recheck(rest, now)
             return
-        result = self.scan()
-        if result is None:  # a Ctrl+Alt+P check is running: try again on the next look
+        if rest.base is None and not steady:
+            return  # the mouse may still be moving: nothing is captured until it stops
+        if rest.area is None:
+            rest.area = eyes.area(rest.anchor)
+            if rest.area is None:
+                return
+        self._update_masks(rest)
+        if rest.base is None:  # as soon as the mouse stops: before the tooltip shows
+            snap = eyes.snapshot(rest.area, rest.masks)
+            if snap is not None:
+                rest.base = rest.prev = snap
             return
-        self.tries += 1
+        if now < rest.since + cfg.hover_delay:
+            return
+        cur = eyes.snapshot(rest.area, rest.masks)
+        if cur is None:
+            return
+        boxes = find_tooltips(rest.base, rest.prev, cur, rest.area)
+        rest.prev = cur
+        if boxes == SCREEN_CHANGED:
+            rest.restarts += 1
+            if rest.restarts < RESTARTS:
+                return self._restart(rest, cur, now)
+            # It keeps changing (moving scenery behind the inventory?): one full read.
+            result = eyes.scan(rest.masks)
+            if result is not None:
+                self._result(rest, result)
+                rest.done = True
+            return
+        found = next((f for f in boxes if not any(overlaps(f.box, t) for t in rest.tried)), None)
+        if found is not None:
+            result = eyes.read(found, rest.area, rest.masks)
+            if result is None:
+                return
+            rest.tried.append(found.box)
+            log.debug("Hover: tooltip box %s read %s", found.box, result.lines)
+            self._result(rest, result)
+            if len(rest.tried) >= BOX_READS:
+                rest.done = True
+            return
+        unchanged = cur == rest.base
+        if not rest.early_read and unchanged:
+            # Nothing has appeared: the tooltip may have been up before the
+            # mouse even stopped. A full read, trusting only names that can't
+            # be grid labels.
+            result = eyes.scan(rest.masks)
+            if result is not None:
+                rest.early_read = True
+                self._result(rest, result)
+            return
+        if now >= rest.since + cfg.hover_delay + LOOK_FOR:
+            if not unchanged:  # something showed but never settled: one last full read
+                result = eyes.scan(rest.masks)
+                if result is None:
+                    return
+                self._result(rest, result)
+            rest.done = True
+
+    def _result(self, rest: Rest, result) -> None:
         self.error = getattr(result, "error", None)
         self._set_on()
-        if is_tooltip_match(result):
-            self.tries = TRIES
-            self.shown_at = (x, y)
+        if shows_item(result):
+            rest.done = True
+            self.shown_at = rest.anchor
             self.on_result(result)
+
+    def _restart(self, rest: Rest, cur: bytes, now: float) -> None:
+        """The screen under the mouse changed (the stash scrolled, a window
+        opened...): what's under it now may be something else."""
+        rest.base = rest.prev = cur
+        rest.since, rest.tried, rest.early_read, rest.done = now, [], False, False
+        if self.shown_at is not None:
+            self._leave()
+
+    def _recheck(self, rest: Rest, now: float) -> None:
+        self._update_masks(rest)
+        cur = self.eyes.snapshot(rest.area, rest.masks)
+        if cur is not None and changed_share(rest.base, cur, rest.area) >= CHANGED_SHARE:
+            rest.restarts = 0
+            self._restart(rest, cur, now)
+
+    def _update_masks(self, rest: Rest) -> None:
+        """Leave our popup out of every snapshot at this spot, earlier ones too,
+        so its showing or hiding doesn't look like something appearing."""
+        r = self.popup_rect()
+        if not r or r in rest.masks:
+            return
+        rest.masks.append(r)
+        a = rest.area
+        if a is not None and rest.base is not None:
+            same = rest.prev is rest.base
+            rest.base = blank_boxes(rest.base, a.w, a.h, (a.x, a.y), [r])
+            rest.prev = rest.base if same else blank_boxes(rest.prev, a.w, a.h, (a.x, a.y), [r])
+
+    # -- state ------------------------------------------------------------------
 
     def _set_on(self) -> None:
         # The last check's error (say, no text reader installed) stays up
@@ -121,12 +276,15 @@ class HoverWatcher:
         """No price is showing any more (it was hidden or replaced)."""
         self.shown_at = None
 
+    def _leave(self) -> None:
+        self.forget()
+        self.on_leave()
+
     def _idle(self, status: str) -> None:
         self.status = status
-        self.anchor = None
+        self.rest = self._last = None
         if self.shown_at is not None:
-            self.forget()
-            self.on_leave()
+            self._leave()
 
     def run(self) -> None:
         error = None
