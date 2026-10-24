@@ -72,7 +72,20 @@ class App:
         self.on_hover_leave: Callable[[], None] = lambda: None
         self.on_hover_toggled: Callable[[bool], None] = lambda on: None
         self.popup_rect: Callable[[], Optional[tuple]] = lambda: None  # our popup, left out of captures
+        from .ai import AiReader
+
+        self.ai = AiReader(lambda: self.config.ai, self.ai_key)  # Claude, if you turn it on
         atexit.register(self.shutdown)
+
+    def ai_key(self) -> str:
+        """The saved Anthropic API key, or "" (none, or saved by another Windows account)."""
+        from . import secretstore
+
+        try:
+            return secretstore.unprotect(self.config.ai.key)
+        except Exception as exc:
+            log.warning("Couldn't read the saved Anthropic API key: %s", exc)
+            return ""
 
     def save(self) -> None:
         save_config(self.config, self.config_path)
@@ -129,6 +142,7 @@ class App:
         try:
             if self.scanner is None:
                 self.scanner = ItemScanner(self.prices, self.config.scan, self.config_path.parent / "scans")
+                self.scanner.ai = self.ai
             return fn(self.scanner)
         finally:
             self._scanning.release()

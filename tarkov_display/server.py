@@ -172,6 +172,14 @@ class Server:
         def markers_change(req, m, q, body):
             return ctx.markers_change(body)
 
+        @r("POST", "/api/ai")
+        def ai_change(req, m, q, body):
+            return ctx.ai_change(body)
+
+        @r("POST", "/api/ai/test")
+        def ai_test(req, m, q, body):
+            return ctx.ai_test()
+
         @r("GET", "/api/display")
         def display(req, m, q, body):
             return ctx.display_state()

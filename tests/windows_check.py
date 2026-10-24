@@ -205,6 +205,22 @@ def _():
     return f"read {result.lines} -> {result.match.item.name}"
 
 
+@check("AI reader: the Anthropic SDK is installed and builds a client")
+def _():
+    if sys.version_info < (3, 10):
+        raise Skip("the AI reader needs Python 3.10 or newer")
+    import anthropic
+
+    from tarkov_display.ai import AiReader
+    from tarkov_display.profiles import AiConfig
+
+    cfg = AiConfig(mode="unsure")
+    reader = AiReader(lambda: cfg, lambda: "sk-ant-not-a-real-key")
+    assert reader.unavailable() is None, reader.unavailable()
+    assert isinstance(reader._get_client(), anthropic.Anthropic)
+    return f"anthropic {anthropic.__version__}"
+
+
 @check("mouse pointer and game focus (hover price check)")
 def _():
     from tarkov_display.hover import GameFocus, win_pointer

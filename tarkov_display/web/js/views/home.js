@@ -169,7 +169,8 @@ function drawScans(el) {
     const it = s.item ? store.itemsById.get(s.item.id) : null;
     return h("div.list-row", { style: { cursor: it ? "pointer" : "default" }, onclick: it ? () => openItem(it.id) : null },
       it ? thumb(it.icon, 34) : h("span.thumb", { style: { width: "34px", height: "34px" } }, icon("search", 16, "muted")),
-      h("div.grow", h("div", s.item ? s.item.name : "Not identified"), h("div.muted.small", fmt.ago(s.time) + (s.auto ? " · hover" : ""))),
+      h("div.grow", h("div", s.item ? s.item.name : "Not identified"),
+        h("div.muted.small", fmt.ago(s.time) + (s.auto ? " · hover" : "") + (s.via === "claude" ? " · read by Claude" : ""))),
       it ? h("span.val", fmt.rub(fleaPrice(it) || it.traderPrice)) : badge(s.error ? "error" : "no match", "warn"));
   })));
 }

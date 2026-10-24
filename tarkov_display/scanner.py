@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-from .matching import ItemMatcher, Match, candidate_lines
+from .matching import FULL_NAME_SCORE, ItemMatcher, Match, candidate_lines
 from .ocr import create_ocr, order_by_distance
 from .prices import PriceDB
 from .profiles import ScanConfig
@@ -38,6 +38,8 @@ class ScanResult:
     cursor: tuple = (0, 0)
     error: Optional[str] = None
     debug_file: Optional[Path] = None
+    via: str = "text"               # who read the name: "text" (Windows' text reader) or "claude"
+    ai_error: Optional[str] = None  # why asking Claude didn't help, when it was asked
 
 
 def capture_rect(cursor, screen_height: int, cfg: ScanConfig):
@@ -65,6 +67,7 @@ class ItemScanner:
         self.ocr = create_ocr()
         self._matcher: Optional[ItemMatcher] = None
         self._matcher_for = None
+        self.ai = None  # AiReader (ai.py), set by the app
 
     def matcher(self) -> ItemMatcher:
         items = self.prices.items
@@ -73,11 +76,12 @@ class ItemScanner:
             self._matcher_for = items
         return self._matcher
 
-    def scan(self, mask: Iterable[Mask] = (), quiet: bool = False, strict: bool = False) -> ScanResult:
+    def scan(self, mask: Iterable[Mask] = (), quiet: bool = False, strict: bool = False, ask_ai: bool = True) -> ScanResult:
         """Check the item under the cursor. ``mask``: screen boxes to leave out
         of the capture, such as our own popup. ``quiet``: log the result only
         in the debug log (hover checks). ``strict``: only accept a full name
-        that can't be a grid label (hover checks that didn't find the tooltip)."""
+        that can't be a grid label (hover checks that didn't find the tooltip).
+        ``ask_ai``: Claude may be asked, if it's on (see ai.py)."""
         if not self.prices.items:
             return ScanResult(None, error="Prices not downloaded yet (check your internet connection).")
         cursor = self.screen.cursor_pos()
@@ -92,8 +96,14 @@ class ItemScanner:
 
         lines = order_by_distance(self.ocr.read(bgra, iw, ih), cx * scale, cy * scale)
         texts = [l.text for l in lines]
-        match = self.matcher().match_lines(candidate_lines(texts), strict=strict)
-        return self._done(ScanResult(match, texts, cursor), bgra, iw, ih, quiet, "hover" if strict else "scan")
+        matcher = self.matcher()
+        match = matcher.match_lines(candidate_lines(texts), strict=strict)
+        result = ScanResult(match, texts, cursor)
+        sure = bool(match and match.full and match.score >= FULL_NAME_SCORE and not matcher.ambiguous(match))
+        # Claude is asked only when something like an item name was read near the mouse.
+        if ask_ai and self._ai_wanted(sure) and (match or matcher.match_lines(candidate_lines(texts))):
+            self._ask_ai(result, bgra, iw, ih, "area", (cx * scale, cy * scale), sure)
+        return self._done(result, bgra, iw, ih, quiet, "hover" if strict else "scan")
 
     # -- hover price check ------------------------------------------------------
 
@@ -130,7 +140,35 @@ class ItemScanner:
         bgra = blank_boxes(bgra, iw, ih, (x, y), mask, scale)
         texts = [l.text for l in sorted(self.ocr.read(bgra, iw, ih), key=lambda l: (l.y, l.x))]
         match = self.matcher().match_tooltip(candidate_lines(texts))
-        return self._done(ScanResult(match, texts, cursor), bgra, iw, ih, True, "tooltip")
+        result = ScanResult(match, texts, cursor)
+        sure = bool(match and match.score >= 1.0)  # read exactly as an item's name
+        if texts and self._ai_wanted(sure):
+            self._ask_ai(result, bgra, iw, ih, "tooltip", None, sure)
+        return self._done(result, bgra, iw, ih, True, "tooltip")
+
+    # -- Claude (ai.py) -------------------------------------------------------------
+
+    def _ai_wanted(self, sure: bool) -> bool:
+        ai = getattr(self, "ai", None)
+        return bool(ai and ai.wanted(sure))
+
+    def _ask_ai(self, result: ScanResult, bgra: bytes, w: int, h: int, kind: str, cursor, sure: bool) -> None:
+        """Ask Claude what the image shows, and use its answer if it names an item."""
+        read = self.ai.read(bgra, w, h, kind, cursor)
+        if read.error:
+            result.ai_error = read.error
+            return
+        if read.name is None:
+            result.lines.append("Claude: no item")
+            if not sure:  # neither Claude nor the text reader can say what it is
+                result.match = None
+            return
+        result.lines.append(f"Claude: {read.name}")
+        match = self.matcher().match_tooltip([read.name])
+        if match:
+            result.match, result.via = match, "claude"
+        else:
+            result.ai_error = f"Claude read \u201c{read.name}\u201d, which isn't in the price list"
 
     # -- results ------------------------------------------------------------------
 

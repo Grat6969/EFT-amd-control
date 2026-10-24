@@ -148,6 +148,22 @@ class TrackerConfig:
         return _from_dict(cls, data)
 
 
+@dataclass
+class AiConfig:
+    """Claude reading item names for the price check (off unless you turn it on)."""
+
+    mode: str = "off"                 # "off", "unsure" (when the built-in reader isn't sure) or "always"
+    model: str = "claude-opus-5-5"
+    key: str = ""                     # Anthropic API key, protected (see secretstore)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AiConfig":
+        cfg = _from_dict(cls, data)
+        if cfg.mode not in ("off", "unsure", "always"):
+            cfg.mode = "off"
+        return cfg
+
+
 def default_config_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home() / ".config")
     return Path(base) / "TarkovDisplay"
@@ -173,6 +189,7 @@ class Config:
     port: int = 47821           # local port for the app window
     logs: LogsConfig = field(default_factory=LogsConfig)
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
+    ai: AiConfig = field(default_factory=AiConfig)
 
     @property
     def profile(self) -> Profile:
@@ -197,6 +214,7 @@ class Config:
             "port": self.port,
             "logs": asdict(self.logs),
             "tracker": asdict(self.tracker),
+            "ai": asdict(self.ai),
         }
 
     @classmethod
@@ -218,6 +236,8 @@ class Config:
             cfg.logs = LogsConfig.from_dict(data["logs"])
         if isinstance(data.get("tracker"), dict):
             cfg.tracker = TrackerConfig.from_dict(data["tracker"])
+        if isinstance(data.get("ai"), dict):
+            cfg.ai = AiConfig.from_dict(data["ai"])
         if data.get("game_mode") in ("regular", "pve"):
             cfg.game_mode = data["game_mode"]
         if cfg.active_profile not in cfg.profiles:
