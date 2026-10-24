@@ -44,6 +44,8 @@ LOOK_FOR = 1.2       # after the wait, how long to watch for the tooltip at one 
 BOX_READS = 4        # boxes read at one spot without finding a name, before giving up there
 RESTARTS = 4         # screen changes at one spot before treating it as moving scenery
 RECHECK_EVERY = 4    # once done at a spot, glance at it every this many looks (in case it scrolls)
+STILL_TRIES = 3      # snapshots to wait for the screen to be still before the first one counts
+POPUP_GONE_WAIT = 0.4  # seconds to wait for the last item's popup to go before looking
 CURSOR_SHOWING = 0x1
 
 
@@ -70,6 +72,7 @@ class Rest:
     masks: List[tuple] = field(default_factory=list)  # our popups, left out of every snapshot
     tried: List[Box] = field(default_factory=list)    # boxes read without finding a name
     early_read: bool = False       # the full read for a tooltip that was up before the mouse stopped
+    stilling: int = 0              # snapshots taken waiting for the screen to be still
     restarts: int = 0
     looks: int = 0
     done: bool = False
@@ -173,15 +176,26 @@ class HoverWatcher:
             return
         if rest.base is None and not steady:
             return  # the mouse may still be moving: nothing is captured until it stops
+        if (rest.base is None and self.shown_at is None and self.popup_rect()
+                and now - rest.since < POPUP_GONE_WAIT):
+            return  # the last item's popup is on its way out: don't let it hide this one's tooltip
         if rest.area is None:
             rest.area = eyes.area(rest.anchor)
             if rest.area is None:
                 return
         self._update_masks(rest)
-        if rest.base is None:  # as soon as the mouse stops: before the tooltip shows
+        if rest.base is None:
+            # The first snapshot, as soon as the mouse stops, before the
+            # tooltip shows; but once the screen is still (the last item's
+            # tooltip may still be fading out: that going isn't this one coming).
             snap = eyes.snapshot(rest.area, rest.masks)
-            if snap is not None:
+            if snap is None:
+                return
+            if rest.prev is not None and (snap == rest.prev or rest.stilling >= STILL_TRIES):
                 rest.base = rest.prev = snap
+            else:
+                rest.prev = snap
+                rest.stilling += 1
             return
         if now < rest.since + cfg.hover_delay:
             return

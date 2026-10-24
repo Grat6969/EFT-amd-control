@@ -129,11 +129,14 @@ class Rig:
         self.t = 0.0
         self.scene = Scene()
         self.eyes = Eyes(self)
-        self.popup = None
+        self.popup, self.popup_until = None, float("inf")  # our popup's place on screen, while it's up
         self.shown = []
         self.leaves = 0
         self.w = HoverWatcher(lambda: self.cfg, lambda: self.focused, self.pointer, self.eyes,
-                              self.shown.append, self.leave, popup_rect=lambda: self.popup, clock=lambda: self.t)
+                              self.shown.append, self.leave, popup_rect=self.popup_rect, clock=lambda: self.t)
+
+    def popup_rect(self):
+        return self.popup if self.t < self.popup_until else None
 
     def pointer(self):
         return None if self.pos is None else (self.pos[0], self.pos[1], self.k)
@@ -293,9 +296,34 @@ def test_stops_and_hides_when_not_in_tarkov_menus(change, status):
 
 def test_waits_its_turn_when_the_screen_reader_is_busy():
     r = Rig()
-    r.scene.add(TOOLTIP, start=0.4, result=named(GPU))
+    r.scene.add(TOOLTIP, start=0.7, result=named(GPU))
     r.eyes.busy = 3  # Ctrl+Alt+P is reading
-    r.run(1.2)
+    r.run(1.6)
+    assert r.ids() == ["gpu"]
+
+
+TOOLSET = SimpleNamespace(id="toolset", name="Toolset", short_name="Toolset")
+
+
+def test_the_last_tooltip_fading_out_isnt_read_as_this_one():
+    r = Rig()
+    label = (430, 470, 490, 486)  # a neighbour's grid label: "Toolset", which is also a full name
+    r.scene.add(label, start=0, result=named(TOOLSET), shade=120)
+    old = (420, 462, 560, 492)    # the last item's tooltip, on top of it, fading out
+    r.scene.add(old, start=0, until=0.12, shade=40)
+    r.scene.add(old, start=0.12, until=0.2, shade=25)
+    r.scene.add(TOOLTIP, start=0.7, result=named(GPU))
+    r.run(1.6)
+    assert r.ids() == ["gpu"] and len(r.eyes.reads) == 1 and overlaps(r.eyes.reads[0], TOOLTIP)
+
+
+def test_waits_for_the_last_popup_to_go_before_looking():
+    r = Rig()
+    old_popup = (505, 505, 700, 560)  # our popup for the last item, where this one's tooltip will show
+    r.scene.add(old_popup, start=0, until=0.25, shade=200)
+    r.popup, r.popup_until = (505, 505, 195, 55), 0.25
+    r.scene.add(TOOLTIP, start=0.7, result=named(GPU))
+    r.run(1.6)
     assert r.ids() == ["gpu"]
 
 
