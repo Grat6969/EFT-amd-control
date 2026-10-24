@@ -4,6 +4,7 @@ Ctrl+Alt+1..9  switch to profile 1..9 (in the order they appear in the config)
 Ctrl+Alt+0     turn the overlay off/on (back to desktop settings)
 Ctrl+Alt+A     turn auto-adjust for dark areas off/on
 Ctrl+Alt+P     price-check the item under the mouse
+Ctrl+Alt+H     turn hover price check off/on
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ WM_HOTKEY = 0x0312
 WM_QUIT = 0x0012
 AUTO_HOTKEY_ID = 20
 SCAN_HOTKEY_ID = 21
+HOVER_HOTKEY_ID = 22
 
 
 class Hotkeys:
@@ -31,11 +33,13 @@ class Hotkeys:
         on_toggle: Callable[[], None],
         on_toggle_auto: Callable[[], None],
         on_scan: Callable[[], None],
+        on_toggle_hover: Optional[Callable[[], None]] = None,
     ) -> None:
         self.on_profile = on_profile
         self.on_toggle = on_toggle
         self.on_toggle_auto = on_toggle_auto
         self.on_scan = on_scan
+        self.on_toggle_hover = on_toggle_hover
         self._thread: Optional[threading.Thread] = None
         self._thread_id = 0
         self.failed: List[str] = []  # hotkeys another program already uses
@@ -53,7 +57,10 @@ class Hotkeys:
                 registered.append(digit + 1)
             else:
                 self.failed.append(f"Ctrl+Alt+{digit}")
-        for hid, key in ((AUTO_HOTKEY_ID, "A"), (SCAN_HOTKEY_ID, "P")):
+        keys = [(AUTO_HOTKEY_ID, "A"), (SCAN_HOTKEY_ID, "P")]
+        if self.on_toggle_hover:
+            keys.append((HOVER_HOTKEY_ID, "H"))
+        for hid, key in keys:
             if user32.RegisterHotKey(None, hid, mods, ord(key)):
                 registered.append(hid)
             else:
@@ -72,6 +79,8 @@ class Hotkeys:
                         self.on_toggle_auto()
                     elif msg.wParam == SCAN_HOTKEY_ID:
                         self.on_scan()
+                    elif msg.wParam == HOVER_HOTKEY_ID:
+                        self.on_toggle_hover()
                     elif digit == 0:
                         self.on_toggle()
                     else:

@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 NEED_TYPES = ("giveItem", "plantItem", "mark")
 CLOSE_GRACE = 8.0          # seconds after the last window closes before quitting
 REOPEN_AFTER = 40.0        # open a window if none connected this long after start
+HOVER_POPUP_SECONDS = 60   # a hover price stays until you move the mouse away, or this long
 UPDATE_CHECK_EVERY = 6 * 3600
 
 
@@ -64,6 +65,12 @@ class WebApp:
         self._displays = self._display_names()
         self._ocr_engine = available_engine()
         self.popup = None
+        self._hover_item: Optional[str] = None  # the item a showing hover popup is for
+        self._hover_lock = threading.Lock()
+        self.app.on_hover_result = self._hover_result
+        self.app.on_hover_leave = self._hover_leave
+        self.app.on_hover_toggled = self._hover_toggled
+        self.app.popup_rect = self._popup_rect
         self.link = GameLink(self)
         self.server = self._bind(port or cfg.port, restarted)
 
@@ -127,6 +134,10 @@ class WebApp:
                 "boost": adj.applied,
             },
             "prices": {"count": len(prices.items), "updated": prices.updated, "error": prices.error},
+            "hover": {
+                "enabled": cfg.scan.hover,
+                "status": app.hover.status if app.hover else ("unavailable on this PC" if cfg.scan.hover else "off"),
+            },
             "gameMode": cfg.game_mode,
             "update": {"available": bool(last.get("available")), "latest": last.get("latest")},
             "updating": dict(self.update_status),
@@ -306,6 +317,10 @@ class WebApp:
                 sc.debug = bool(s["debug"])
             if "popup_seconds" in s:
                 sc.popup_seconds = _clamp(s["popup_seconds"], 2, 30)
+            if "hover" in s:
+                sc.hover = bool(s["hover"])
+            if "hover_delay" in s:
+                sc.hover_delay = round(_clamp(s["hover_delay"], 0.15, 2.0), 2)
             app.save()
         else:
             raise ValueError(f"unknown display change {kind!r}")
@@ -434,10 +449,10 @@ class WebApp:
             entry["debugFile"] = str(result.debug_file)
         return entry
 
-    def _popup(self, result) -> None:
+    def _popup(self, result, seconds: Optional[float] = None) -> None:
         if not self.popup:
             return
-        seconds = self.app.config.scan.popup_seconds
+        seconds = seconds or self.app.config.scan.popup_seconds
         from .popup import ACCENT, BAD, GOOD, MUTED
 
         if result.match:
@@ -483,10 +498,64 @@ class WebApp:
             entry = self._scan_entry(result)
             self.scans.appendleft(entry)
             self.publish("scan", entry)
+            with self._hover_lock:
+                self._hover_item = None  # this popup replaces a hover one; moving the mouse mustn't hide it
             try:
                 self._popup(result)
             except Exception:
                 log.exception("popup failed")
+
+    # -- hover price check (the watcher itself is in hover.py) -----------
+
+    def _hover_result(self, result) -> None:
+        """A hover check read an item's tooltip: show its price and note it."""
+        item = result.match.item
+        with self._hover_lock:
+            showing = self._hover_item == item.id and self.popup is not None and self.popup.rect is not None
+            self._hover_item = item.id
+        if not showing:  # moving a little over the same item mustn't make the popup flicker
+            try:
+                self._popup(result, HOVER_POPUP_SECONDS)
+            except Exception:
+                log.exception("popup failed")
+        last = self.scans[0] if self.scans else {}
+        if not (last.get("auto") and (last.get("item") or {}).get("id") == item.id):
+            entry = self._scan_entry(result)
+            entry["auto"] = True
+            self.scans.appendleft(entry)
+            self.publish("scan", entry)
+
+    def _hover_leave(self) -> None:
+        with self._hover_lock:
+            had, self._hover_item = self._hover_item, None
+        if had and self.popup:
+            self.popup.hide_soon()
+
+    def _hover_toggled(self, on: bool) -> None:
+        """Ctrl+Alt+H: say so next to the mouse, and update the app window."""
+        with self._hover_lock:
+            self._hover_item = None
+        if self.popup:
+            from .popup import MUTED
+
+            try:
+                from .screen import ScreenSampler
+
+                cursor = ScreenSampler().cursor_pos()
+            except Exception:
+                cursor = (0, 0)
+            note = "Rest the mouse on an item to see what it's worth." if on else "Ctrl+Alt+P still checks the item under the mouse."
+            self.popup.show(f"Hover price check {'on' if on else 'off'}", "", [], [("", note, MUTED)],
+                            f"Ctrl+Alt+H turns it {'off' if on else 'on'}", cursor, 2.5)
+        self.publish("display", self.display_state())
+
+    def _popup_rect(self):
+        """Our popup's place on screen (a little larger), to leave out of captures."""
+        rect = self.popup.rect if self.popup else None
+        if not rect:
+            return None
+        x, y, w, h = rect
+        return x - 4, y - 4, w + 8, h + 8
 
     def _monitor_loop(self) -> None:
         last_state, reopened, last_check = None, False, 0.0

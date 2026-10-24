@@ -176,6 +176,7 @@ function connect() {
   es.addEventListener("scan", json((s) => {
     store.scans.unshift(s);
     emit("scan", s);
+    if (s.auto) return;  // hover price checks show next to the mouse in game, not here
     if (s.item) toast(`Price check: ${s.item.name}`, { action: () => openItem(s.item.id), actionLabel: "Details" });
     else toast(s.error ? `Price check failed: ${s.error}` : "Price check: couldn't identify the item", { kind: "warn" });
   }));

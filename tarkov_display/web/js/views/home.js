@@ -25,7 +25,7 @@ export default {
         card("Display", cards.display, { actions: h("a.btn.ghost.small", { href: "#/display" }, "Settings") }),
         card("Wipe", cards.wipe)),
       h("div.grid.cols-3",
-        card("Recent price checks", cards.scans, { sub: "Ctrl+Alt+P in game" }),
+        card("Recent price checks", cards.scans, { sub: "Ctrl+Alt+P or hover in game" }),
         card("Game events", cards.events, { sub: "from Tarkov's logs" }),
         card("Best value per slot", cards.value, { sub: "flea or trader, before fees", cls: "flush" })));
 
@@ -143,7 +143,7 @@ function drawDisplay(el) {
       h("dt", "Auto-boost"), h("dd", st.auto?.enabled
         ? (st.auto.scene !== null && st.auto.scene !== undefined ? `on · scene ${fmt.pct(st.auto.scene)} · boost ${fmt.pct(st.auto.boost)}` : "on")
         : "off"),
-      h("dt", "Hotkeys"), h("dd", h("kbd", "Ctrl+Alt+1–9"), " profiles  ", h("kbd", "Ctrl+Alt+P"), " price check")));
+      h("dt", "Hotkeys"), h("dd", h("kbd", "Ctrl+Alt+1–9"), " profiles  ", h("kbd", "Ctrl+Alt+P"), " price check  ", h("kbd", "Ctrl+Alt+H"), " hover prices")));
 }
 
 function drawWipe(el, wipes) {
@@ -162,13 +162,14 @@ function drawWipe(el, wipes) {
 function drawScans(el) {
   const scans = store.scans;
   if (!scans.length) {
-    return mount(el, empty("No price checks yet.", "In game, hover over an item until its name shows, then press Ctrl+Alt+P."));
+    return mount(el, empty("No price checks yet.", h("span", "In game, hover over an item until its name shows, then press Ctrl+Alt+P. Or turn on ",
+      h("a", { href: "#/display" }, "hover price check"), " to see prices just by resting the mouse on items.")));
   }
   mount(el, h("div.list", scans.slice(0, 6).map((s) => {
     const it = s.item ? store.itemsById.get(s.item.id) : null;
     return h("div.list-row", { style: { cursor: it ? "pointer" : "default" }, onclick: it ? () => openItem(it.id) : null },
       it ? thumb(it.icon, 34) : h("span.thumb", { style: { width: "34px", height: "34px" } }, icon("search", 16, "muted")),
-      h("div.grow", h("div", s.item ? s.item.name : "Not identified"), h("div.muted.small", fmt.ago(s.time))),
+      h("div.grow", h("div", s.item ? s.item.name : "Not identified"), h("div.muted.small", fmt.ago(s.time) + (s.auto ? " · hover" : ""))),
       it ? h("span.val", fmt.rub(fleaPrice(it) || it.traderPrice)) : badge(s.error ? "error" : "no match", "warn"));
   })));
 }

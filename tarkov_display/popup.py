@@ -1,4 +1,4 @@
-"""The price-check popup shown next to the mouse in game (Ctrl+Alt+P).
+"""The price-check popup shown next to the mouse in game (Ctrl+Alt+P or hover).
 
 A small always-on-top window that never takes focus, so the game keeps
 your mouse and keyboard. Drawn with Tk, which comes with Python.
@@ -94,11 +94,16 @@ class PopupHost:
         self.root.withdraw()
         self.requests: "queue.Queue" = queue.Queue()
         self.win = None
+        self.rect: Optional[Tuple[int, int, int, int]] = None  # where the popup is on screen, while shown
         self._hide_job = None
 
     def show(self, title: str, subtitle: str, rows: List[Line], notes: List[Line], footer: str,
              cursor: Tuple[int, int], seconds: float) -> None:
         self.requests.put((title, subtitle, rows, notes, footer, cursor, seconds))
+
+    def hide_soon(self) -> None:
+        """Hide the popup (from any thread; in order with ``show``)."""
+        self.requests.put(None)
 
     def run(self, stop) -> None:
         def poll():
@@ -107,7 +112,11 @@ class PopupHost:
                 return
             try:
                 while True:
-                    self._show(*self.requests.get_nowait())
+                    request = self.requests.get_nowait()
+                    if request is None:
+                        self.hide()
+                    else:
+                        self._show(*request)
             except queue.Empty:
                 pass
             except Exception:
@@ -169,6 +178,7 @@ class PopupHost:
         px, py = place_beside(cursor, (w, h), bounds)
         win.geometry(f"+{px}+{py}")
         self.win = win
+        self.rect = (px, py, w, h)
         self._show_no_activate(win)
         self._hide_job = self.root.after(int(seconds * 1000), self.hide)
 
@@ -193,6 +203,7 @@ class PopupHost:
         if self._hide_job:
             self.root.after_cancel(self._hide_job)
             self._hide_job = None
+        self.rect = None
         if self.win is not None:
             self.win.destroy()
             self.win = None

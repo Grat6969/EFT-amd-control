@@ -1,7 +1,9 @@
 """Price check for the item under the mouse cursor.
 
-Runs only when you press the hotkey: one screenshot of the area around the
-cursor, read with OCR, matched against the tarkov.dev item list.
+Runs only when you press the hotkey, or with hover price check on when the
+mouse rests on something in Tarkov (see hover.py): one screenshot of the
+area around the cursor, read with OCR, matched against the tarkov.dev item
+list.
 """
 
 from __future__ import annotations
@@ -10,13 +12,13 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 from .matching import ItemMatcher, Match, candidate_lines
 from .ocr import create_ocr, order_by_distance
 from .prices import PriceDB
 from .profiles import ScanConfig
-from .screen import ScreenSampler, to_bmp
+from .screen import ScreenSampler, blank_area, to_bmp
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +65,10 @@ class ItemScanner:
             self._matcher_for = items
         return self._matcher
 
-    def scan(self) -> ScanResult:
+    def scan(self, mask: Iterable[Tuple[int, int, int, int]] = (), quiet: bool = False) -> ScanResult:
+        """Check the item under the cursor. ``mask``: screen boxes (left, top,
+        width, height) to leave out of the capture, such as our own popup.
+        ``quiet``: log the result only in the debug log (hover checks)."""
         if not self.prices.items:
             return ScanResult(None, error="Prices not downloaded yet (check your internet connection).")
         cursor = self.screen.cursor_pos()
@@ -74,6 +79,8 @@ class ItemScanner:
             bgra, iw, ih = self.screen.grab(x, y, w, h, scale)
         except OSError as exc:
             return ScanResult(None, cursor=cursor, error=str(exc))
+        for mx, my, mw, mh in mask:
+            bgra = blank_area(bgra, iw, ih, (mx - x) * scale, (my - y) * scale, (mx + mw - x) * scale, (my + mh - y) * scale)
 
         lines = order_by_distance(self.ocr.read(bgra, iw, ih), cx * scale, cy * scale)
         texts = [l.text for l in lines]
@@ -81,10 +88,11 @@ class ItemScanner:
         result = ScanResult(match, texts, cursor)
         if self.cfg.debug and self.debug_dir:
             result.debug_file = self._save_debug(bgra, iw, ih, result)
+        say = log.debug if quiet else log.info
         if match:
-            log.info("Scan: %r -> %s (%.0f%%)", match.text, match.item.name, match.score * 100)
+            say("Scan: %r -> %s (%.0f%%)", match.text, match.item.name, match.score * 100)
         else:
-            log.info("Scan: no item matched. OCR read: %s", texts)
+            say("Scan: no item matched. OCR read: %s", texts)
         return result
 
     def _save_debug(self, bgra: bytes, w: int, h: int, result: ScanResult) -> Path:

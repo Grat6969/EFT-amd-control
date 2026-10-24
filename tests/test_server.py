@@ -132,22 +132,7 @@ def test_events_stream(server):
     assert server.ctx.clients[0] == 1
 
 
-# -- the real app with demo data -----------------------------------------------------
-
-@pytest.fixture()
-def webapp(tmp_path, monkeypatch):
-    monkeypatch.setenv("APPDATA", str(tmp_path))
-    from tests import demo
-
-    demo.install(monkeypatch)
-    from tarkov_display.webapp import WebApp
-
-    app = WebApp(open_on_start=False, port=0)
-    app.app.prices.refresh()
-    app.server.start()
-    yield app
-    app.server.stop()
-
+# -- the real app with demo data (the webapp fixture is in conftest.py) ---------------
 
 def body(resp):
     return json.loads(resp[1])

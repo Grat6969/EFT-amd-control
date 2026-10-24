@@ -14,7 +14,8 @@ the installer and start RaidReady from the Start menu. Nothing else to install.
   pick the map, and RaidReady lists the keys and items to take, what to look for, and how
   and where to do each objective, with a tick box for each.
 - **Price check in game**: hover over an item and press `Ctrl+Alt+P` for its flea price,
-  best trader, price per slot, and whether your quests or hideout still need it.
+  best trader, price per slot, and whether your quests or hideout still need it. Or turn
+  on **hover price check** and the price pops up just by resting the mouse on an item.
 - **Your own map markers**: right-click a map to drop a marker with a note (loot spots,
   key doors, good angles). Pop the map out into its own window to keep it on a second
   screen. With the game log reader on, it switches to the map you load into.
@@ -173,7 +174,7 @@ the app starts, and send quests the game log reader sees you finish back to Tark
 Tokens are stored encrypted for your Windows account (Windows DPAPI) and are only ever
 sent to the TarkovTracker site you chose.
 
-## Price check in game: Ctrl+Alt+P
+## Price check in game
 
 Hover over an item in your stash or a container until Tarkov shows its name, then
 press `Ctrl+Alt+P`. A small popup next to the mouse shows the flea price, best trader,
@@ -185,13 +186,34 @@ name with Windows' built-in text recognition and looks it up in the price list. 
 Tarkov in **Borderless** window mode; exclusive fullscreen hides the popup and gives
 black screenshots.
 
-If nothing shows up when you press it:
+### Hover price check (no key needed)
+
+Turn it on in **Display → Price check** or with `Ctrl+Alt+H` in game (off by default).
+Then just rest the mouse on an item: when its name tooltip shows, the same popup
+appears, and it goes away when you move on to the next item.
+
+- It only runs while a Tarkov window is focused and the mouse pointer is showing
+  (menus, stash, inventory, traders). The game hides the pointer while you play a raid,
+  so nothing pops up mid-fight.
+- A price shows only when the item's **full name** is read. Only Tarkov's hover tooltip
+  shows full names (the grid shows short ones), so menu text and neighbouring items
+  don't set it off. If it doesn't show for an item, `Ctrl+Alt+P` still works.
+- It takes a screenshot around the mouse each time the mouse stops (it waits about a
+  third of a second; change that under **Wait before checking**). Turn it off when you
+  don't need it.
+- It uses the same text recognition built into Windows as `Ctrl+Alt+P`, on your PC.
+  Nothing is sent anywhere.
+
+If nothing shows up:
 
 - Check **Display → Price check**: it says whether a text reader is installed (if not,
   run `install.bat` and restart the app) and whether another program already uses
   `Ctrl+Alt+P` (overlays such as Discord, Steam, AMD or NVIDIA often do; change it there).
 - Use **Borderless** window mode in Tarkov.
 - Wait until the item's name tooltip is showing before pressing the keys.
+- For hover price check, **Display → Price check** shows what it's doing, for example
+  "waiting for Tarkov to be the focused window". If it keeps saying the pointer is
+  hidden while you're in your stash, use `Ctrl+Alt+P` instead.
 
 If it misreads items, turn on **Display → Price check → Save each capture** (captures
 go to `%APPDATA%\TarkovDisplay\scans`) or run `python -m tarkov_display scan --debug`.
@@ -233,6 +255,7 @@ contrast emulated, no saturation). Everything else works on any PC.
 | `Ctrl+Alt+0` | Turn display changes off / on |
 | `Ctrl+Alt+A` | Turn auto-boost off / on |
 | `Ctrl+Alt+P` | Price-check the item under the mouse |
+| `Ctrl+Alt+H` | Turn hover price check on / off |
 
 If another program already uses one of these, Windows gives it to that program; the
 **Display** page lists any that are taken.
@@ -266,7 +289,9 @@ What RaidReady does, and doesn't do:
   never changes the game's files.
 - **Price check**: takes one screenshot around the mouse when you press `Ctrl+Alt+P` and
   reads the item name with Windows' built-in text recognition, the way tools like
-  RatScanner do.
+  RatScanner do. **Hover price check** (off by default) does the same each time the mouse
+  stops while Tarkov is focused and the pointer is showing. Neither presses keys or
+  clicks for you.
 - **Auto-boost** (off by default): looks at 5 small patches of the screen a few times a
   second to tell when the scene is dark.
 - **Game log reader** (off by default): reads the text log files Tarkov writes, read-only.

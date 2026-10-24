@@ -98,7 +98,7 @@ class AutoConfig:
 
 @dataclass
 class ScanConfig:
-    """Price check of the item under the mouse (Ctrl+Alt+P)."""
+    """Price check of the item under the mouse (Ctrl+Alt+P, or on hover)."""
 
     # Area captured around the cursor, in pixels on a 1080p screen (scaled
     # for other resolutions). Covers Tarkov's name tooltip and the short
@@ -110,6 +110,10 @@ class ScanConfig:
     scale: int = 2           # enlarge before OCR; small text reads better
     popup_seconds: float = 8.0
     debug: bool = False      # save each capture and what was read
+    # Hover price check (off unless you turn it on): check the item the mouse
+    # rests on in Tarkov, after it has been still this many seconds.
+    hover: bool = False
+    hover_delay: float = 0.35
 
     @classmethod
     def from_dict(cls, data: dict) -> "ScanConfig":

@@ -66,6 +66,12 @@ class App:
         self.scan_results: "queue.Queue" = queue.Queue()
         self._scanning = threading.Lock()
         self.hotkeys = None
+        self.hover = None
+        # Set by the app window (webapp.py); the defaults suit the command line.
+        self.on_hover_result: Callable = self.scan_results.put
+        self.on_hover_leave: Callable[[], None] = lambda: None
+        self.on_hover_toggled: Callable[[bool], None] = lambda on: None
+        self.popup_rect: Callable[[], Optional[tuple]] = lambda: None  # our popup, left out of captures
         atexit.register(self.shutdown)
 
     def save(self) -> None:
@@ -95,36 +101,69 @@ class App:
         log.info("Auto-adjust %s", "on" if self.config.auto.enabled else "off")
         self.watcher.refresh()
 
+    def toggle_hover(self) -> None:
+        self.config.scan.hover = not self.config.scan.hover
+        self.save()
+        log.info("Hover price check %s", "on" if self.config.scan.hover else "off")
+        self.on_hover_toggled(self.config.scan.hover)
+
     def request_scan(self) -> None:
         """Price-check the item under the cursor (runs off the calling thread)."""
-        if not self._scanning.acquire(blocking=False):
-            return  # a scan is already running
         threading.Thread(target=self._scan, name="Scan", daemon=True).start()
 
     def _scan(self) -> None:
+        result = self.scan_now(wait=True)
+        if result is not None:
+            self.scan_results.put(result)
+
+    def scan_now(self, wait: bool = False, quiet: bool = False):
+        """Price-check the item under the cursor now. One check runs at a time:
+        with ``wait``, waits for a running one to finish (Ctrl+Alt+P), else
+        returns None at once (hover checks just try again a moment later)."""
         from .scanner import ItemScanner, ScanResult
 
+        got = self._scanning.acquire(timeout=5) if wait else self._scanning.acquire(blocking=False)
+        if not got:
+            return None
         try:
             if self.scanner is None:
                 self.scanner = ItemScanner(self.prices, self.config.scan, self.config_path.parent / "scans")
-            result = self.scanner.scan()
+            popup = self.popup_rect()
+            return self.scanner.scan(mask=[popup] if popup else (), quiet=quiet)
         except Exception as exc:
-            log.warning("Scan failed: %s", exc)
-            result = ScanResult(None, error=str(exc))
+            (log.debug if quiet else log.warning)("Scan failed: %s", exc)
+            return ScanResult(None, error=str(exc))
         finally:
             self._scanning.release()
-        self.scan_results.put(result)
 
     def start(self) -> None:
         self.watcher.start()
         self.prices.start()
-        if self.config.hotkeys and sys.platform == "win32":
+        if sys.platform != "win32":
+            return
+        if self.config.hotkeys:
             from .hotkeys import Hotkeys
 
-            self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause, self.toggle_auto, self.request_scan)
+            self.hotkeys = Hotkeys(self.select_profile_index, self.toggle_pause, self.toggle_auto, self.request_scan,
+                                   on_toggle_hover=self.toggle_hover)
             self.hotkeys.start()
+        try:
+            from .hover import GameFocus, HoverWatcher, win_pointer
+
+            # Idles until hover price check is turned on.
+            self.hover = HoverWatcher(
+                lambda: self.config.scan, GameFocus(lambda: self.config.process_names), win_pointer(),
+                lambda: self.scan_now(quiet=True),
+                on_result=lambda result: self.on_hover_result(result), on_leave=lambda: self.on_hover_leave())
+            self.hover.start()
+        except Exception as exc:  # the rest of the app works without it
+            log.warning("Hover price check unavailable: %s", exc)
+            self.hover = None
 
     def shutdown(self) -> None:
+        if self.hover:
+            self.hover.stop()
+            self.hover = None
         if self.hotkeys:
             self.hotkeys.stop()
             self.hotkeys = None

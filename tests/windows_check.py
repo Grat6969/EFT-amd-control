@@ -6,7 +6,9 @@ Run by the "Windows tests" workflow. Each check prints PASS, FAIL or SKIP
 (SKIP: the machine can't do it, e.g. a build server without a GPU). Exits 1
 if anything failed. The price check is tested end to end: a fake item tooltip
 is drawn on screen, the mouse is moved next to it, and the app's own scanner
-captures the screen, reads it with Windows OCR and looks the item up.
+captures the screen, reads it with Windows OCR and looks the item up. The
+hover price check is tested the same way, with a stand-in for our own popup
+drawn nearer the mouse than the tooltip, which must be left out of the read.
 """
 
 from __future__ import annotations
@@ -87,7 +89,7 @@ def _():
 def _():
     from tarkov_display.hotkeys import Hotkeys
 
-    hk = Hotkeys(lambda n: None, lambda: None, lambda: None, lambda: None)
+    hk = Hotkeys(lambda n: None, lambda: None, lambda: None, lambda: None, on_toggle_hover=lambda: None)
     hk.start()
     time.sleep(1.0)
     hk.stop()
@@ -201,6 +203,88 @@ def _():
     result = results["scan"]
     assert result.match and result.match.item.id == "gpu", f"read {result.lines}, matched {result.match}"
     return f"read {result.lines} -> {result.match.item.name}"
+
+
+@check("mouse pointer and game focus (hover price check)")
+def _():
+    from tarkov_display.hover import GameFocus, win_pointer
+
+    pointer = win_pointer()()
+    focused = GameFocus(lambda: ["EscapeFromTarkov.exe"])()
+    assert focused is False, "Tarkov isn't running here, but it was reported as focused"
+    return f"pointer: {pointer or 'hidden or outside the focused window'}"
+
+
+@check("hover price check end to end: rest, read the tooltip, leave our popup out, hide")
+def _():
+    import ctypes
+    import tkinter as tk
+
+    from tarkov_display.hover import HoverWatcher
+    from tarkov_display.ocr import OcrUnavailable
+    from tarkov_display.popup import make_dpi_aware
+    from tarkov_display.profiles import ScanConfig
+    from tarkov_display.scanner import ItemScanner
+
+    make_dpi_aware()
+    try:
+        scanner = ItemScanner(price_db(), ScanConfig())
+    except OcrUnavailable as exc:
+        raise Skip(str(exc))
+    try:
+        root = tk.Tk()
+    except tk.TclError as exc:
+        raise Skip(f"no display: {exc}")
+
+    def window(parent, text, where):
+        win = parent if parent is root else tk.Toplevel(root)
+        win.overrideredirect(True)
+        win.attributes("-topmost", True)
+        win.configure(bg="#1a1a1a")
+        tk.Label(win, text=text, fg="#dcdcd2", bg="#1a1a1a", font=("Bahnschrift", 13)).pack(padx=12, pady=6)
+        win.geometry(where)
+        return win
+
+    window(root, "Graphics card", "+420+400")                       # the game's tooltip, beside the mouse
+    decoy = window(None, "LEDX Skin Transilluminator", "+300+360")  # "our popup", nearer the mouse
+    cfg = ScanConfig(hover=True, hover_delay=0.3)
+    out = {"shown": [], "leaves": 0}
+
+    def run():
+        root.update()
+        mask = (decoy.winfo_rootx() - 4, decoy.winfo_rooty() - 4, decoy.winfo_width() + 8, decoy.winfo_height() + 8)
+        watcher = HoverWatcher(lambda: cfg, lambda: True, lambda: (*scanner.screen.cursor_pos(), 1.0),
+                               lambda: scanner.scan(mask=[mask], quiet=True),
+                               out["shown"].append, lambda: out.__setitem__("leaves", out["leaves"] + 1))
+        try:
+            ctypes.windll.user32.SetCursorPos(400, 410)
+            for _ in range(40):
+                watcher.step()
+                if out["shown"]:
+                    break
+                time.sleep(0.08)
+            unmasked = scanner.scan()
+            out["unmasked"] = unmasked.match.item.id if unmasked.match else None
+            ctypes.windll.user32.SetCursorPos(400, 520)  # move on
+            for _ in range(3):
+                watcher.step()
+                time.sleep(0.08)
+            out["status"] = watcher.status
+        except Exception:
+            out["error"] = traceback.format_exc()
+        root.quit()
+
+    root.after(800, run)
+    root.mainloop()
+    root.destroy()
+    if "error" in out:
+        raise AssertionError(out["error"])
+    shown = [r.match.item.id for r in out["shown"]]
+    if not shown and out.get("unmasked") is None:
+        raise Skip("nothing read: screen capture may return a blank image on this machine")
+    assert shown == ["gpu"], f"hover showed {shown} (status: {out.get('status')})"
+    assert out["leaves"] == 1, "moving the mouse away didn't hide the price"
+    return f"showed {shown[0]}; without leaving our popup out it would have read {out['unmasked']}"
 
 
 def main() -> int:

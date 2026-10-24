@@ -56,6 +56,20 @@ def sample_boxes(rect: Rect, points: Sequence[Tuple[float, float]] = SAMPLE_POIN
     return boxes
 
 
+def blank_area(bgra: bytes, w: int, h: int, x0: int, y0: int, x1: int, y1: int) -> bytes:
+    """``bgra`` (``w`` x ``h`` pixels) with the box from (x0, y0) to (x1, y1) painted black."""
+    x0, x1 = max(0, min(w, x0)), max(0, min(w, x1))
+    y0, y1 = max(0, min(h, y0)), max(0, min(h, y1))
+    if x0 >= x1 or y0 >= y1:
+        return bgra
+    out = bytearray(bgra)
+    black = bytes((x1 - x0) * 4)
+    for row in range(y0, y1):
+        start = (row * w + x0) * 4
+        out[start:start + len(black)] = black
+    return bytes(out)
+
+
 def to_bmp(bgra: bytes, w: int, h: int) -> bytes:
     """Encode top-down BGRA pixels as a 24-bit BMP file (for OCR tools and debug saves)."""
     import struct

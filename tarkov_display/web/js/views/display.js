@@ -119,22 +119,48 @@ export default {
           progressBar(st.boost || 0, 1)));
     };
 
-    const scanCard = () => {
-      const s = store.display.scan, engine = store.display.ocr;
-      return h("div",
+    // Price check card: redrawn when its settings change elsewhere (Ctrl+Alt+H
+    // in game), not while a slider is being dragged.
+    const scan = h("div");
+    const hoverStatus = h("div.hover-status");
+    let scanShown = "";
+    const drawHoverStatus = () => {
+      const hv = store.state.hover || {};
+      const st = hv.status || "off";
+      if (!hv.enabled) return mount(hoverStatus);
+      const kind = st === "on" ? "ok" : st.startsWith("can't") || st.startsWith("unavailable") ? "bad" : "";
+      const text = st === "on" ? "On: rest the mouse on an item in Tarkov" : st.charAt(0).toUpperCase() + st.slice(1);
+      mount(hoverStatus, h("span.status-dot." + (kind || "idle")), h("span", text));
+    };
+    const drawScan = () => {
+      const s = store.display.scan, engine = store.display.ocr, taken = store.display.hotkeysTaken || [];
+      scanShown = JSON.stringify([s.hover, s.debug, engine, taken, store.display.hotkeys]);
+      mount(scan,
         h("div.chips", { style: { marginBottom: "10px" } },
           engine ? badge(`Reads text with ${engine}`, "good") : badge("No OCR engine", "bad"),
           store.display.hotkeys ? null : badge("Hotkeys are off", "warn"),
-          (store.display.hotkeysTaken || []).includes("Ctrl+Alt+P") ? badge("Ctrl+Alt+P is taken", "bad") : null),
+          ...["Ctrl+Alt+P", "Ctrl+Alt+H"].filter((k) => taken.includes(k)).map((k) => badge(`${k} is taken`, "bad"))),
         engine ? null : h("div.note.warn", { style: { marginBottom: "10px" } }, icon("alert", 16),
           h("div", "Run ", h("code", "install.bat"), " from the app folder (it adds the text reader built into Windows), then restart the app.")),
-        slider("Popup stays for", s.popup_seconds, [2, 30, 1], (v) => `${v} s`,
+        toggle("Show the price when I rest the mouse on an item", s.hover,
+          (v) => displayChange({ op: "scan", settings: { hover: v } }).catch((e) => toast(e.message, { kind: "bad" })),
+          "Hover price check. Ctrl+Alt+H turns it on and off in game."),
+        h("div.muted.small", { style: { margin: "6px 0 8px" } },
+          "No key needed: while Tarkov is focused and the mouse pointer is showing (menus, stash, inventory), the price pops up "
+          + "when the mouse stops on an item and its name tooltip shows, and goes away when you move on. Ctrl+Alt+H turns it on and off in game. "
+          + "It takes a screenshot around the mouse each time it stops, so leave it off if you don't use it."),
+        hoverStatus,
+        s.hover ? slider("Wait before checking", s.hover_delay, [0.15, 1, 0.05], (v) => `${Number(v).toFixed(2)} s`,
+          debounce((v) => displayChange({ op: "scan", settings: { hover_delay: v } }), 300),
+          { hint: "How long the mouse has to stay still on an item" }) : null,
+        slider("Ctrl+Alt+P popup stays for", s.popup_seconds, [2, 30, 1], (v) => `${v} s`,
           debounce((v) => displayChange({ op: "scan", settings: { popup_seconds: v } }), 300)),
         h("div", { style: { marginTop: "8px" } }, toggle("Save each capture for troubleshooting", s.debug,
           (v) => displayChange({ op: "scan", settings: { debug: v } }), "Saves what was captured and read to %APPDATA%\\TarkovDisplay\\scans")),
         h("div.muted.small", { style: { marginTop: "10px" } },
-          "Hover over an item in game until its name shows, then press Ctrl+Alt+P. Takes one screenshot around the mouse only when you press it. "
+          "Or hover over an item until its name shows and press Ctrl+Alt+P. Without hover price check, the screen is only read when you press it. "
           + "Use Borderless window mode in Tarkov: in exclusive fullscreen the screenshot comes out black and the popup can't show."));
+      drawHoverStatus();
     };
 
     mount(root,
@@ -145,6 +171,7 @@ export default {
           h("kbd", "Ctrl+Alt+0"), h("span", "Turn display changes off / on"),
           h("kbd", "Ctrl+Alt+A"), h("span", "Turn auto-boost off / on"),
           h("kbd", "Ctrl+Alt+P"), h("span", "Price-check the item under the mouse"),
+          h("kbd", "Ctrl+Alt+H"), h("span", "Turn hover price check on / off"),
           (store.display.hotkeysTaken || []).length ? h("div.note.warn", { style: { gridColumn: "1 / -1", marginTop: "6px" } }, icon("alert", 16),
             h("div", `Another program already uses ${store.display.hotkeysTaken.join(", ")}, so ${store.display.hotkeysTaken.length > 1 ? "they don't" : "it doesn't"} work here. `
               + "Change or turn off that shortcut in the other program (often an overlay like Discord, Steam, AMD or NVIDIA), then restart this app.")) : null),
@@ -152,14 +179,16 @@ export default {
       card("Profiles", profiles, { sub: "AMD Display Color + Windows gamma" }),
       h("div.grid.cols-2",
         card("Auto-boost in dark areas", auto),
-        card("Price check", scanCard())),
+        card("Price check", scan)),
       h("div.note", icon("info", 16), h("div", "If high gamma values are refused, run ", h("code", "enable_full_gamma_range.reg"),
         " from the app folder once and reboot. If something looks wrong, AMD Software → Display → Display Color → Reset.")));
-    drawStatus(); drawProfiles(); drawAuto();
+    drawStatus(); drawProfiles(); drawAuto(); drawScan();
     return on((kind) => {
-      if (kind === "state") { drawStatus(); drawReadout(); }
+      if (kind === "state") { drawStatus(); drawReadout(); drawHoverStatus(); }
       if (kind === "display") {
         drawStatus();
+        const d = store.display;
+        if (scanShown !== JSON.stringify([d.scan.hover, d.scan.debug, d.ocr, d.hotkeysTaken || [], d.hotkeys])) drawScan();
         lastEdit = Math.max(lastEdit, slider.touched || 0);
         const changed = shown !== store.display.active + "|" + Object.keys(store.display.profiles).join(",");
         if (changed || Date.now() - lastEdit > 1500) { drawProfiles(); drawAuto(); }
