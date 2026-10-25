@@ -686,6 +686,14 @@ def item_detail(client: TarkovClient, item_id: str, *, tasks_data=None, barters_
     return {"item": item, "history": history}
 
 
+def offer_counts(client: TarkovClient, max_age: float = 3600) -> Dict[str, int]:
+    """How many offers each item had on the flea at tarkov.dev's last scan
+    (from the item file, shared with everything else that reads it)."""
+    items = Source(client).item_file(max_age=max_age)["items"]
+    return {k: int(v["lastOfferCount"]) for k, v in items.items()
+            if isinstance(v.get("lastOfferCount"), (int, float)) and not isinstance(v.get("lastOfferCount"), bool)}
+
+
 def price_history(client: TarkovClient, item_id: str, days: float = HISTORY_DAYS) -> List[dict]:
     """An item's flea prices over the last ``days`` days, oldest first: points
     of {price (average offer), priceMin (lowest offer), offerCount,

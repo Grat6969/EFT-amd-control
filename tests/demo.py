@@ -155,12 +155,12 @@ BY_SHORT = {i["shortName"]: i for i in ITEMS}
 # For the price watch: a few items far from their weekly average price.
 # short name -> (weekly average, last day's average, lowest offer now)
 DEALS = {
-    "GPU": (452000, 260000, 200000),       # crashing: cheap now
+    "GPU": (452000, 260000, 180000),       # crashing: cheap now
     "Moonshine": (172000, 165000, 75000),  # one very cheap offer
     "KIBA": (162000, 150000, 70000),
-    "Salewa": (19800, 19000, 12500),       # 37% under: shows only with a lower threshold
-    "0.2BTC": (498000, 640000, 790000),    # rising: selling high
-    "Tetriz": (41000, 50000, 68000),
+    "Salewa": (19800, 19000, 12500),       # about 32% under: shows only with a lower threshold
+    "0.2BTC": (498000, 900000, 950000),    # rising: selling high
+    "Tetriz": (41000, 72000, 75000),
 }
 for _short, (_week, _day, _low) in DEALS.items():
     # diff24h is the change over 48 hours in roubles (see prices.parse_lite_items)

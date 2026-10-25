@@ -41,12 +41,13 @@ export default {
         card("Cheap now", list(w, "cheap", needs, pct, draw), {
           cls: "flush", sub: `Lowest offer ${pct} or more below its 7-day average: worth buying` }),
         card("Selling high", list(w, "high", needs, pct, draw), {
-          cls: "flush", sub: `Lowest offer ${pct} or more above its 7-day average: worth selling` }),
+          cls: "flush", sub: `Lowest offer and 24h average ${pct} or more above their 7-day averages: worth selling` }),
         h("div.note", icon("info", 16), h("div",
           "After every price update (every 15 minutes, and when a raid ends with the game log reader on), RaidReady ",
-          "looks for items whose price moved a lot and compares each one's lowest flea offer with its average price over ",
-          "the last 7 days, from tarkov.dev's price history. Click an item for its price chart. Cheap offers sell fast: ",
-          "one may be gone by the time you reach the flea market.")));
+          "looks for items whose price moved a lot and compares each one's lowest flea offer with the average lowest offer ",
+          "over the last 7 days, from tarkov.dev's price history. Items that usually have fewer than 3 offers are left out: ",
+          "their price is often just one odd listing. Click an item for its price chart. Cheap offers sell fast: one may be ",
+          "gone by the time you reach the flea market.")));
     };
 
     async function change(body) {
@@ -94,12 +95,16 @@ function list(w, kind, needs, pct, redraw) {
     { key: "name", label: "Item", sort: (e) => e.name.toLowerCase(),
       render: (e) => itemCell(e, { sub: h("span", e.short, now - e.since < NEW_FOR ? badge("New", "accent", "Joined this list in the last half hour") : null) }) },
     { key: "low", label: "Lowest offer", num: true, sort: (e) => e.low,
-      render: (e) => h("div", h("div", fmt.rub(e.low)), e.offers ? h("div.muted.small", `${fmt.num(e.offers)} offers`) : null) },
+      render: (e) => h("div", h("div", fmt.rub(e.low)),
+        e.offers ? h("div.muted.small", { title: "How many offers it usually has on the flea" }, `~${fmt.num(e.offers)} offers`) : null) },
     { key: "avg7", label: "7-day avg", num: true, sort: (e) => e.avg7,
-      render: (e) => h("div", { title: `From ${fmt.num(e.points)} prices over ${e.days} days` }, h("div", fmt.rub(e.avg7)),
-        h("div.muted.small", `24h ${fmt.rub(e.avg24)}`)) },
+      render: (e) => h("div", { title: `The lowest offer's average over the last ${e.days} days (${fmt.num(e.points)} prices). `
+          + `Average offer: ${fmt.rub(e.avg7All)} over 7 days, ${fmt.rub(e.avg24)} over 24 hours.` },
+        h("div", fmt.rub(e.avg7)), h("div.muted.small", `24h avg ${fmt.rub(e.avg24)}`)) },
     { key: "pct", label: kind === "cheap" ? "Below avg" : "Above avg", num: true, sort: (e) => Math.abs(e.diff),
-      render: (e) => badge(`${e.diff > 0 ? "+" : "−"}${fmt.pct(Math.abs(e.diff))}`, "good") },
+      render: (e) => badge(`${e.diff > 0 ? "+" : "−"}${fmt.pct(Math.abs(e.diff))}`, "good", kind === "high"
+        ? `Lowest offer ${fmt.signedPct(e.lowDiff * 100)}, 24h average ${fmt.signedPct((e.avgDiff ?? 0) * 100)} over their 7-day averages (the smaller is shown)`
+        : undefined) },
   ];
   if (kind === "cheap") {
     columns.push(

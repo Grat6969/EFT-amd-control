@@ -90,7 +90,7 @@ class WebApp:
     def _make_watch(self, mode: str, prices: PriceDB, store: DataStore) -> PriceWatch:
         client = store.client
         return PriceWatch(lambda: prices.items, lambda item_id: staticapi.price_history(client, item_id),
-                          self.cfg_dir / f"pricewatch_{mode}.json")
+                          self.cfg_dir / f"pricewatch_{mode}.json", offers=lambda: staticapi.offer_counts(client))
 
     def _display_names(self) -> List[str]:
         try:

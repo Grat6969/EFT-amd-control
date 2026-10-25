@@ -280,8 +280,9 @@ def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> No
         spacing.append(sorted(gaps)[len(gaps) // 2] if gaps else 0)
         spans.append((stamps[-1] - stamps[0]) / 86400e3 if len(stamps) > 1 else 0)
         avg = pricewatch.weekly_average(points)
-        print(f"    {it.name[:40]:40} {len(points):>4} prices over {spans[-1]:.1f} days, 7-day avg "
-              f"{avg.price and round(avg.price)}, lowest now {it.last_low}, offers {avg.offers}")
+        print(f"    {it.name[:40]:40} {len(points):>4} prices over {spans[-1]:.1f} days, 7-day avg lowest "
+              f"{avg.low and round(avg.low)} (now {it.last_low}), average {avg.price and round(avg.price)}, "
+              f"offers {avg.offers}")
     if spacing:
         print(f"  price histories          ok  every ~{sorted(spacing)[len(spacing) // 2]:.0f} min, "
               f"{min(spans):.1f}-{max(spans):.1f} days")
@@ -291,12 +292,14 @@ def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> No
         rep.warn("price history empty", empty[0])
     try:
         start = time.time()
-        watch = pricewatch.PriceWatch(lambda: items, lambda item_id: staticapi.price_history(client, item_id))
+        watch = pricewatch.PriceWatch(lambda: items, lambda item_id: staticapi.price_history(client, item_id),
+                                      offers=lambda: staticapi.offer_counts(client))
         result = watch.check()
         print(f"  price watch              ok  {len(result['cheap'])} cheap now, {len(result['high'])} selling high, "
               f"{result['compared']} compared, {result['waiting']} waiting ({time.time() - start:.1f}s)")
-        for e in result["cheap"][:4] + result["high"][:4]:
-            print(f"    {e['list']:5} {e['name'][:40]:40} lowest {e['low']:>9} vs 7-day {e['avg7']:>9} ({e['diff']:+.0%})")
+        for e in result["cheap"][:6] + result["high"][:6]:
+            print(f"    {e['list']:5} {e['name'][:40]:40} lowest {e['low']:>9} vs 7-day {e['avg7']:>9} ({e['diff']:+.0%}), "
+                  f"24h avg {e['avg24']} vs {e['avg7All']}, {e['offers']} offers")
         if result["error"]:
             rep.warn("price watch download errors", result["error"])
     except Exception:
@@ -325,14 +328,6 @@ def main(argv=None) -> int:
             rep.error(f"{label} crashed:\n{traceback.format_exc()}")
     for mode in ("regular", "pve"):
         check_mode(rep, mode, args)
-
-    # Temporary: tune the price watch's rules on real prices (see tests/watch_study.py).
-    from tests import watch_study
-    for mode in ("regular", "pve"):
-        try:
-            watch_study.study(mode, 150)
-        except Exception:
-            traceback.print_exc()
 
     print("\n== warnings ==")
     for message, count in rep.warnings.most_common():

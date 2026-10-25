@@ -3,22 +3,32 @@
 Two lists, rebuilt after every price update:
 
 - cheap now: the lowest offer is at least ``threshold`` below the item's
-  average price over the last 7 days (worth buying)
-- selling high: the lowest offer is at least ``threshold`` above it (worth
-  selling: you'd list just under that offer)
+  usual lowest offer, its average over the last 7 days (worth buying)
+- selling high: the lowest offer and the 24 hour average are both at least
+  ``threshold`` above their 7-day averages (worth selling)
 
-The price list (prices.py) has every item's lowest offer and 24 hour
-average, but no weekly average: that takes the item's price history, one
-download per item from tarkov.dev's data files (what its price chart
-uses). Downloading thousands of them every 15 minutes would be rude, so:
+Lowest offer is compared with lowest offer: on tarkov.dev it usually sits
+13-18% under the average offer price, which would make every item look
+cheap. Items usually listed fewer than MIN_OFFERS times are left out: in
+such thin markets the "price" is one person's listing, often a silly one
+(1 000 000 for a pistol grip nobody else sells), and a third of all items
+are like that. "Selling high" also needs the 24h average up, so one
+overpriced offer left in a sold-out market doesn't count.
 
-- Only items whose price has visibly moved are looked up: a lowest offer
-  far from the 24h average, or a big change over 48 hours. A move older than
-  that has mostly worked its way into the weekly average anyway: an item
-  that dropped 50% four days ago is now only about 30% below it.
+The price list (prices.py) has every item's lowest offer and 24h average,
+but no weekly average: that takes the item's price history, one download
+per item from tarkov.dev's data files (what its price chart uses).
+Downloading thousands every 15 minutes would be rude, so:
+
+- Only items whose price list entry shows a big move are looked up: a
+  lowest offer far under the 24h average, or a big change over 48 hours
+  (thresholds measured on tarkov.dev's live data). Items with fewer than
+  two offers right now are skipped too. A move older than a couple of days
+  has mostly worked its way into the weekly average anyway: an item that
+  dropped 50% four days ago is now only about 30% below it.
 - A weekly average changes slowly, so each one is kept for hours (on disk
-  too) and compared with the latest lowest offer at every price update.
-- A check downloads a few dozen histories at most, most promising first;
+  too) and compared with the latest prices at every price update.
+- A check downloads a few dozen histories at most, biggest moves first;
   the rest wait for the next check.
 """
 
@@ -27,12 +37,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import statistics
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .prices import Item
 
@@ -40,26 +51,35 @@ log = logging.getLogger(__name__)
 
 LISTS = ("cheap", "high")
 LISTED_MAX_AGE = 6 * 3600      # look up an item on a list again after this long...
-AVERAGE_MAX_AGE = 12 * 3600    # ... and any other item whose price still moves after this long
-AVERAGE_KEEP = 24 * 3600       # forget a weekly average older than this
+AVERAGE_MAX_AGE = 24 * 3600    # ... and any other item whose price still moves after this long
+AVERAGE_KEEP = 36 * 3600       # forget a weekly average older than this
 FETCHES_PER_CHECK = 40         # price histories downloaded per check after a price update...
 FETCHES_NOW = 120              # ... and per check you asked for
 WORKERS = 4                    # downloads at a time
 MIN_POINTS = 12                # a weekly average needs this many prices...
 MIN_DAYS = 2.0                 # ... spread over at least this many days
+MIN_OFFERS = 3                 # usually listed fewer times than this: no real market price
+MIN_OFFERS_NOW = 2             # not even looked up with fewer offers than this right now
+# A big move in the price list, as a share of the threshold (0.5 = 50%): the
+# lowest offer this far under the 24h average, or a 48h change this big.
+CHEAP_GAP = 0.9                # 45% under, for a 50% threshold
+CHEAP_CHANGE = 0.4             # down 20% over 48h
+HIGH_CHANGE = 0.4              # up 20% over 48h
 ALERT_AGAIN_AFTER = 6 * 3600   # an item back on a list it left is news again after this long
 MAX_ENTRIES = 200              # per list
 
 
 @dataclass
 class Average:
-    """An item's average price over the last 7 days, from its history."""
+    """An item's prices over the last 7 days, from its history. ``low`` and
+    ``price`` are None when there isn't enough history to say."""
 
     fetched: float           # when the history was downloaded
-    price: Optional[float]   # None: not enough history to say
+    low: Optional[float]     # average of the lowest offer
+    price: Optional[float]   # average of the average offer (what the 24h average is made of)
     points: int = 0
     days: float = 0.0        # how many days the history covers
-    offers: Optional[int] = None  # offers on the flea at the latest point
+    offers: Optional[int] = None  # how many offers there usually are (median)
 
 
 def _number(value) -> float:
@@ -69,26 +89,36 @@ def _number(value) -> float:
         return 0.0
 
 
-def weekly_average(points: Sequence[dict], now: Optional[float] = None) -> Average:
-    """The average of each day's average price. Days count equally however
-    many prices were recorded on each, so a busy day doesn't outweigh the rest."""
-    now = time.time() if now is None else now
-    good = [(_number(p.get("timestamp")), _number(p.get("price"))) for p in points if isinstance(p, dict)]
-    good = [(ts, price) for ts, price in good if ts > 0 and price > 0]
-    offers = None
-    if good:
-        last = max((p for p in points if isinstance(p, dict)), key=lambda p: _number(p.get("timestamp")))
-        offers = int(_number(last.get("offerCount"))) if last.get("offerCount") is not None else None
-    if len(good) < MIN_POINTS:
-        return Average(now, None, len(good), offers=offers)
-    days = (max(ts for ts, _ in good) - min(ts for ts, _ in good)) / 86400e3
-    if days < MIN_DAYS:
-        return Average(now, None, len(good), days, offers)
+def _daily_mean(rows: List[Tuple[float, float]], now: float) -> float:
+    """The average of each day's average. Days count equally however many
+    prices were recorded on each, so a busy day doesn't outweigh the rest."""
     by_day: Dict[int, List[float]] = {}
-    for ts, price in good:
-        by_day.setdefault(int((now * 1000 - ts) // 86400e3), []).append(price)
-    daily = [sum(v) / len(v) for v in by_day.values()]
-    return Average(now, sum(daily) / len(daily), len(good), days, offers)
+    for ts, value in rows:
+        by_day.setdefault(int((now * 1000 - ts) // 86400e3), []).append(value)
+    return sum(sum(v) / len(v) for v in by_day.values()) / len(by_day)
+
+
+def weekly_average(points: Sequence[dict], now: Optional[float] = None) -> Average:
+    """An item's 7-day averages from its price history points."""
+    now = time.time() if now is None else now
+    prices, lows, counts = [], [], []
+    for p in points:
+        if not isinstance(p, dict):
+            continue
+        ts, price = _number(p.get("timestamp")), _number(p.get("price"))
+        if ts <= 0 or price <= 0:
+            continue
+        prices.append((ts, price))
+        lows.append((ts, _number(p.get("priceMin")) or price))
+        if p.get("offerCount") is not None:
+            counts.append(_number(p.get("offerCount")))
+    offers = int(statistics.median(counts)) if counts else None
+    if len(prices) < MIN_POINTS:
+        return Average(now, None, None, len(prices), offers=offers)
+    days = (max(ts for ts, _ in prices) - min(ts for ts, _ in prices)) / 86400e3
+    if days < MIN_DAYS:
+        return Average(now, None, None, len(prices), days, offers)
+    return Average(now, _daily_mean(lows, now), _daily_mean(prices, now), len(prices), days, offers)
 
 
 def eligible(item: Item) -> bool:
@@ -96,14 +126,16 @@ def eligible(item: Item) -> bool:
     return bool(item.last_low) and item.last_low > 0 and not item.flea_banned and not item.is_preset
 
 
-def signal(item: Item) -> float:
-    """How far the price has visibly moved lately, as a fraction (0.3 = 30%):
-    the lowest offer against the 24h average, or the change over 48 hours."""
+def signal(item: Item, threshold: float) -> float:
+    """How big a move the price list shows, compared with what's worth a
+    look (see CHEAP_GAP...): 1 or more is a big move, 0 is none."""
     moves = [0.0]
     if item.avg24h and item.last_low:
-        moves.append(abs(item.last_low / item.avg24h - 1))
+        moves.append((1 - item.last_low / item.avg24h) / (CHEAP_GAP * threshold))
     if item.change48h is not None:
-        moves.append(abs(item.change48h) / 100)
+        change = item.change48h / 100
+        moves.append(-change / (CHEAP_CHANGE * threshold))
+        moves.append(change / (HIGH_CHANGE * threshold))
     return max(moves)
 
 
@@ -116,14 +148,21 @@ def typical_price(item: Item) -> float:
     return max(prices)
 
 
-def classify(low: float, average: float, threshold: float) -> Optional[str]:
-    if not low or not average:
+def classify(item: Item, avg: Average, threshold: float) -> Optional[Tuple[str, float]]:
+    """("cheap" or "high", how far from usual) for an item far from its
+    7-day level, or None. For "high", the smaller of the lowest offer's and
+    the 24h average's rise."""
+    if not avg.low or not avg.price or not item.last_low:
         return None
-    ratio = low / average
-    if ratio <= 1 - threshold + 1e-9:
-        return "cheap"
-    if ratio >= 1 + threshold - 1e-9:
-        return "high"
+    if avg.offers is not None and avg.offers < MIN_OFFERS:
+        return None
+    low = item.last_low / avg.low - 1
+    if low <= -threshold + 1e-9:
+        return "cheap", low
+    if low >= threshold - 1e-9 and item.avg24h:
+        rise = min(low, item.avg24h / avg.price - 1)
+        if rise >= threshold - 1e-9:
+            return "high", rise
     return None
 
 
@@ -133,9 +172,11 @@ class PriceWatch:
     staticapi.price_history)."""
 
     def __init__(self, items: Callable[[], List[Item]], history: Callable[[str], List[dict]],
-                 path: Optional[Path] = None, clock: Callable[[], float] = time.time) -> None:
+                 path: Optional[Path] = None, clock: Callable[[], float] = time.time,
+                 offers: Callable[[], Dict[str, int]] = dict) -> None:
         self.items = items
         self.history = history
+        self.offers = offers  # item id -> offers on the flea right now (where known)
         self.path = path
         self.clock = clock
         self.averages: Dict[str, Average] = {}
@@ -162,19 +203,25 @@ class PriceWatch:
             now = self.clock()
             items = [i for i in self.items() if eligible(i)]
             self._forget_old(now)
-            wanted = self._wanted(items, threshold, min_price, now)
+            try:
+                offers = self.offers() or {}
+            except Exception as exc:  # then every item that moved counts
+                log.debug("Price watch: no offer counts: %s", exc)
+                offers = {}
+            wanted = self._wanted(items, threshold, min_price, now, offers)
             error = self._download(wanted[:max(0, budget)], now)
 
             lists: Dict[str, List[dict]] = {k: [] for k in LISTS}
             compared = 0
             for item in items:
                 avg = self.averages.get(item.id)
-                if not avg or not avg.price or avg.price < min_price:
+                if not avg or not avg.low or avg.low < min_price:
                     continue
-                compared += 1
-                kind = classify(item.last_low, avg.price, threshold)
-                if kind:
-                    lists[kind].append(self._entry(item, avg, kind, now))
+                if avg.offers is None or avg.offers >= MIN_OFFERS:
+                    compared += 1
+                found = classify(item, avg, threshold)
+                if found:
+                    lists[found[0]].append(self._entry(item, avg, found[0], found[1]))
             lists["cheap"].sort(key=lambda e: e["diff"])
             lists["high"].sort(key=lambda e: -e["diff"])
 
@@ -206,7 +253,8 @@ class PriceWatch:
                          len(lists["cheap"]), len(lists["high"]), min(len(wanted), budget), self.result["waiting"])
             return self.result
 
-    def _wanted(self, items: List[Item], threshold: float, min_price: int, now: float) -> List[Item]:
+    def _wanted(self, items: List[Item], threshold: float, min_price: int, now: float,
+                offers: Dict[str, int]) -> List[Item]:
         """Items whose history should be looked up, most important first:
         those on a list (to keep it right), then those whose price moved most."""
         listed = set(self.since["cheap"]) | set(self.since["high"])
@@ -214,11 +262,12 @@ class PriceWatch:
         for item in items:
             avg = self.averages.get(item.id)
             age = now - avg.fetched if avg is not None else float("inf")
-            moved = signal(item)
+            moved = signal(item, threshold)
             if item.id in listed:
                 if age >= LISTED_MAX_AGE:
                     ranked.append((0, -moved, item))
-            elif age >= AVERAGE_MAX_AGE and moved >= threshold / 2 and typical_price(item) >= min_price / 2:
+            elif (age >= AVERAGE_MAX_AGE and moved >= 1 and typical_price(item) >= min_price / 2
+                  and offers.get(item.id, MIN_OFFERS_NOW) >= MIN_OFFERS_NOW):
                 ranked.append((1, -moved, item))
         ranked.sort(key=lambda r: (r[0], r[1], -(r[2].avg24h or r[2].last_low or 0)))
         return [r[2] for r in ranked]
@@ -258,11 +307,13 @@ class PriceWatch:
         self.alerted = {k: t for k, t in self.alerted.items() if now - t < 7 * 86400}
 
     @staticmethod
-    def _entry(item: Item, avg: Average, kind: str, now: float) -> dict:
+    def _entry(item: Item, avg: Average, kind: str, diff: float) -> dict:
         return {
             "id": item.id, "name": item.name, "short": item.short_name, "icon": item.icon,
-            "low": item.last_low, "avg24": item.avg24h, "avg7": round(avg.price),
-            "diff": round(item.last_low / avg.price - 1, 4),
+            "low": item.last_low, "avg24": item.avg24h,
+            "avg7": round(avg.low), "avg7All": round(avg.price),  # lowest offer's / average offer's
+            "diff": round(diff, 4), "lowDiff": round(item.last_low / avg.low - 1, 4),
+            "avgDiff": round(item.avg24h / avg.price - 1, 4) if item.avg24h else None,
             "points": avg.points, "days": round(avg.days, 1), "offers": avg.offers, "lookedUp": avg.fetched,
             "trader": item.best_trader, "traderPrice": item.best_trader_price, "base": item.base_price,
             "change48h": item.change48h, "list": kind,
@@ -322,7 +373,8 @@ class PriceWatch:
         if not self.path:
             return
         data = {
-            "averages": {k: [a.fetched, a.price, a.points, round(a.days, 2), a.offers] for k, a in self.averages.items()},
+            "averages": {k: [a.fetched, a.low, a.price, a.points, round(a.days, 2), a.offers]
+                         for k, a in self.averages.items()},
             "since": self.since, "alerted": self.alerted,
         }
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -337,10 +389,13 @@ class PriceWatch:
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
+            def number(v):
+                return None if v is None else float(v)
+
             for key, row in (data.get("averages") or {}).items():
-                fetched, price, points, days, offers = row
-                self.averages[str(key)] = Average(float(fetched), None if price is None else float(price),
-                                                  int(points), float(days), None if offers is None else int(offers))
+                fetched, low, price, points, days, offers = row
+                self.averages[str(key)] = Average(float(fetched), number(low), number(price), int(points), float(days),
+                                                  None if offers is None else int(offers))
             for kind in LISTS:
                 self.since[kind] = {str(k): float(v) for k, v in ((data.get("since") or {}).get(kind) or {}).items()}
             self.alerted = {str(k): float(v) for k, v in (data.get("alerted") or {}).items()}
