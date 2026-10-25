@@ -242,6 +242,7 @@ input[type="range"]:disabled { opacity: .4; }
 .item-name { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tbl .item-name { white-space: normal; } /* wrap long names in narrow windows instead of widening the table */
 .item-sub { color: var(--muted); font-size: 12px; }
+.item-sub .badge { margin-left: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 2px 8px 2px 2px; cursor: pointer; color: var(--text); max-width: 100%; }
 .chip:hover { border-color: var(--accent-2); background: var(--panel-3); }
 .chip.compact { padding: 1px 6px 1px 1px; font-size: 12px; border-radius: 6px; }

@@ -24,7 +24,7 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from tarkov_display import datasets, staticapi
+from tarkov_display import datasets, pricewatch, staticapi
 from tarkov_display.client import TarkovClient
 from tarkov_display.prices import PriceDB
 
@@ -204,10 +204,11 @@ def check_mode(rep: Report, mode: str, args) -> None:
             rep.warn("trader without a name", t.get("id"))
 
     db = PriceDB(cache_path=None, game_mode=mode)
+    price_lists = {}
     for label, fetch in [("price list (data file)", db.fetch_items_files)] + (
             [("price list (item list)", db.fetch_items_lite)] if mode == "regular" else []):
         try:
-            items = fetch()
+            items = price_lists[label] = fetch()
             print(f"  {label:24} ok  {len(items):>5} items")
             if len(items) < 1000:
                 rep.error(f"[{mode}] {label}: only {len(items)} items")
@@ -216,6 +217,10 @@ def check_mode(rep: Report, mode: str, args) -> None:
                     rep.warn(f"{label}: item without a name", getattr(it, "uid", None))
         except Exception:
             rep.error(f"[{mode}] {label} crashed:\n{traceback.format_exc()}")
+    # The app's own price list: PvP from the item list, PvE from the data file.
+    app_items = price_lists.get("price list (item list)") or price_lists.get("price list (data file)") or []
+    check_price_watch(rep, mode, client, app_items)
+
     try:
         hideout_needs, quest_needs = db.fetch_needs()
         print(f"  needed items             ok  hideout {len(hideout_needs or {})}, quests {len(quest_needs or {})}")
@@ -251,6 +256,51 @@ def check_mode(rep: Report, mode: str, args) -> None:
             print(f"  GraphQL tasks            ok  {len(gql)} (data files: {len(out.get('tasks') or [])})")
         except Exception as exc:
             print(f"  GraphQL tasks            failed (not counted): {str(exc)[:200]}")
+
+
+def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> None:
+    """Price histories (the item chart and the price watch) and one price
+    watch check, as the app does it after a price update. With --save, the
+    histories it looked up are kept, so the replayed app's price watch finds them."""
+    eligible = sorted((i for i in items if pricewatch.eligible(i) and i.avg24h), key=lambda i: -(i.avg24h or 0))
+    spacing, spans, empty = [], [], []
+    for it in eligible[:3] + eligible[len(eligible) // 2:len(eligible) // 2 + 3]:
+        try:
+            points = staticapi.price_history(client, it.id)
+        except Exception:
+            rep.error(f"[{mode}] price history for {it.name} crashed:\n{traceback.format_exc()}")
+            continue
+        stamps = sorted(float(p["timestamp"]) for p in points if p.get("timestamp") is not None)
+        if not points:
+            empty.append(it.name)
+            continue
+        if any(not isinstance(p.get("price"), (int, float)) for p in points):
+            rep.warn("price history point without a numeric price", points[0])
+        gaps = [(b - a) / 60000 for a, b in zip(stamps, stamps[1:])]
+        spacing.append(sorted(gaps)[len(gaps) // 2] if gaps else 0)
+        spans.append((stamps[-1] - stamps[0]) / 86400e3 if len(stamps) > 1 else 0)
+        avg = pricewatch.weekly_average(points)
+        print(f"    {it.name[:40]:40} {len(points):>4} prices over {spans[-1]:.1f} days, 7-day avg "
+              f"{avg.price and round(avg.price)}, lowest now {it.last_low}, offers {avg.offers}")
+    if spacing:
+        print(f"  price histories          ok  every ~{sorted(spacing)[len(spacing) // 2]:.0f} min, "
+              f"{min(spans):.1f}-{max(spans):.1f} days")
+    if empty and not spacing:
+        rep.error(f"[{mode}] every price history checked was empty: {empty}")
+    elif empty:
+        rep.warn("price history empty", empty[0])
+    try:
+        start = time.time()
+        watch = pricewatch.PriceWatch(lambda: items, lambda item_id: staticapi.price_history(client, item_id))
+        result = watch.check()
+        print(f"  price watch              ok  {len(result['cheap'])} cheap now, {len(result['high'])} selling high, "
+              f"{result['compared']} compared, {result['waiting']} waiting ({time.time() - start:.1f}s)")
+        for e in result["cheap"][:4] + result["high"][:4]:
+            print(f"    {e['list']:5} {e['name'][:40]:40} lowest {e['low']:>9} vs 7-day {e['avg7']:>9} ({e['diff']:+.0%})")
+        if result["error"]:
+            rep.warn("price watch download errors", result["error"])
+    except Exception:
+        rep.error(f"[{mode}] price watch crashed:\n{traceback.format_exc()}")
 
 
 def main(argv=None) -> int:

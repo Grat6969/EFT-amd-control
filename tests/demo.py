@@ -152,6 +152,36 @@ for j, (cal, name, short, dmg, pen, armor, frag, speed, tracer, price) in enumer
 
 BY_SHORT = {i["shortName"]: i for i in ITEMS}
 
+# For the price watch: a few items far from their weekly average price.
+# short name -> (weekly average, last day's average, lowest offer now)
+DEALS = {
+    "GPU": (452000, 260000, 200000),       # crashing: cheap now
+    "Moonshine": (172000, 165000, 75000),  # one very cheap offer
+    "KIBA": (162000, 150000, 70000),
+    "Salewa": (19800, 19000, 12500),       # 37% under: shows only with a lower threshold
+    "0.2BTC": (498000, 640000, 790000),    # rising: selling high
+    "Tetriz": (41000, 50000, 68000),
+}
+for _short, (_week, _day, _low) in DEALS.items():
+    # diff24h is the change over 48 hours in roubles (see prices.parse_lite_items)
+    BY_SHORT[_short].update(price=_low, avg24hPrice=_day, diff24h=_day - _week)
+
+
+def price_history(item_id: str) -> list:
+    """Two-hourly prices over the last week, like json.tarkov.dev/<mode>/prices/<id>."""
+    lite = next((i for i in ITEMS if i["uid"] == item_id), None)
+    if not lite or not lite.get("avg24hPrice") or "noFlea" in lite["tags"]:
+        return []
+    week, day, _ = DEALS.get(lite["shortName"], (lite["avg24hPrice"], lite["avg24hPrice"], None))
+    noise = random.Random(int(item_id, 16))
+    now_ms = time.time() * 1000
+    points = []
+    for hr in range(7 * 24, 0, -2):
+        price = int((day if hr <= 24 else week) * (1 + noise.uniform(-0.03, 0.03)))
+        points.append({"price": price, "priceMin": int(price * 0.93), "offerCount": noise.randrange(20, 300),
+                       "timestamp": str(int(now_ms - hr * 3600 * 1000))})
+    return points
+
 
 def ref(short):
     i = BY_SHORT[short]
@@ -431,14 +461,7 @@ def item_detail(item_id: str) -> dict:
                             "vendor": {"name": t["name"], "normalizedName": t["normalizedName"], "minTraderLevel": o["minTraderLevel"],
                                        "buyLimit": o["buyLimit"], "taskUnlock": o["taskUnlock"]}})
     uses = [q for q in QUESTS if any((o.get("items") or [{}])[0].get("id") == item_id for o in q["objectives"] if o.get("items"))]
-    base_t = time.time() * 1000
-    history = []
-    if avg:
-        price = avg
-        for hr in range(7 * 24, 0, -2):
-            price = max(1, int(price * (1 + rnd.uniform(-0.03, 0.03))))
-            history.append({"price": price, "priceMin": int(price * 0.93), "offerCount": rnd.randrange(20, 300),
-                            "timestamp": str(int(base_t - hr * 3600 * 1000))})
+    history = price_history(item_id)
     return {
         "item": {
             "id": item_id, "name": lite["name"], "shortName": lite["shortName"], "normalizedName": lite["shortName"].lower(),
@@ -494,6 +517,9 @@ class DemoClient:
             return MAP_IMAGES
         if url.endswith("wipe-details.json"):
             return WIPES
+        prices = re.search(r"json\.tarkov\.dev/(?:regular|pve)/prices/(\w+)$", url)
+        if prices:
+            return {"data": price_history(prices.group(1))}
         raise RuntimeError(f"demo has no {url}")
 
 

@@ -436,6 +436,20 @@ def test_item_details_from_files(tmp_path):
     assert client.queries == []
 
 
+def test_price_history():
+    client = StaticClient()
+    assert [p["price"] for p in staticapi.price_history(client, "ledx")] == [990000]  # last 7 days only
+    assert client.urls == [STATIC_URL + "regular/prices/ledx"]
+    old, new = {"price": 2, "timestamp": NOW_MS - 3600e3}, {"price": 3, "timestamp": str(int(NOW_MS - 60e3))}
+    pve = StaticClient("pve", data={"pve/prices/ledx": {"data": [new, "junk", old]}})
+    assert staticapi.price_history(pve, "ledx") == [old, new]  # oldest first
+    with pytest.raises(RuntimeError, match="404"):
+        staticapi.price_history(client, "nothing")
+    bad = StaticClient(data={"regular/prices/ledx": {"data": {"not": "a list"}}})
+    with pytest.raises(staticapi.ApiError, match="expected format"):
+        staticapi.price_history(bad, "ledx")
+
+
 def test_prices_from_files_for_pve_and_as_pvp_fallback():
     data = {k.replace("regular/", "pve/"): v for k, v in files().items()}
     pve = PriceDB(game_mode="pve")

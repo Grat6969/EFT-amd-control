@@ -680,11 +680,21 @@ def item_detail(client: TarkovClient, item_id: str, *, tasks_data=None, barters_
 
     history = []
     try:
-        doc = client.get_json(f"{STATIC_URL}{src.mode}/prices/{item_id}")
-        since = (time.time() - HISTORY_DAYS * 86400) * 1000
-        history = [p for p in (doc or {}).get("data") or []
-                   if isinstance(p, dict) and _number(p.get("timestamp")) >= since]
-        history.sort(key=lambda p: _number(p.get("timestamp")))
+        history = price_history(client, item_id)
     except Exception as exc:  # the chart is optional
         log.debug("no price history for %s: %s", item_id, exc)
     return {"item": item, "history": history}
+
+
+def price_history(client: TarkovClient, item_id: str, days: float = HISTORY_DAYS) -> List[dict]:
+    """An item's flea prices over the last ``days`` days, oldest first: points
+    of {price (average offer), priceMin (lowest offer), offerCount,
+    timestamp (ms)}, as tarkov.dev's price chart shows them."""
+    mode = Source(client).mode
+    doc = client.get_json(f"{STATIC_URL}{mode}/prices/{item_id}")
+    if not isinstance(doc, dict) or not isinstance(doc.get("data"), list):
+        raise ApiError(f"tarkov.dev's price history for {item_id} isn't in the expected format")
+    since = (time.time() - days * 86400) * 1000
+    points = [p for p in doc["data"] if isinstance(p, dict) and _number(p.get("timestamp")) >= since]
+    points.sort(key=lambda p: _number(p.get("timestamp")))
+    return points

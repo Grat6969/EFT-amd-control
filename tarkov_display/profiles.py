@@ -135,6 +135,19 @@ class LogsConfig:
 
 
 @dataclass
+class WatchConfig:
+    """Price watch: items whose lowest flea offer is far from their weekly average."""
+
+    enabled: bool = True     # check after every price update and say when an item joins a list
+    threshold: float = 0.5   # how far from the weekly average counts (0.5 = 50% below or above)
+    min_price: int = 10000   # leave out items whose weekly average is below this (roubles)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WatchConfig":
+        return _from_dict(cls, data)
+
+
+@dataclass
 class TrackerConfig:
     """TarkovTracker account link. Tokens are stored encrypted (see secretstore)."""
 
@@ -174,6 +187,7 @@ class Config:
     port: int = 47821           # local port for the app window
     logs: LogsConfig = field(default_factory=LogsConfig)
     tracker: TrackerConfig = field(default_factory=TrackerConfig)
+    watch: WatchConfig = field(default_factory=WatchConfig)
 
     @property
     def profile(self) -> Profile:
@@ -198,6 +212,7 @@ class Config:
             "port": self.port,
             "logs": asdict(self.logs),
             "tracker": asdict(self.tracker),
+            "watch": asdict(self.watch),
         }
 
     @classmethod
@@ -219,6 +234,8 @@ class Config:
             cfg.logs = LogsConfig.from_dict(data["logs"])
         if isinstance(data.get("tracker"), dict):
             cfg.tracker = TrackerConfig.from_dict(data["tracker"])
+        if isinstance(data.get("watch"), dict):
+            cfg.watch = WatchConfig.from_dict(data["watch"])
         if data.get("game_mode") in ("regular", "pve"):
             cfg.game_mode = data["game_mode"]
         if cfg.active_profile not in cfg.profiles:

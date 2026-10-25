@@ -10,7 +10,7 @@
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.argv[2] || "http://127.0.0.1:47999/";
-const ROUTES = ["home", "items", "quests", "raid", "hideout", "needed", "barters", "crafts", "ammo",
+const ROUTES = ["home", "items", "pricewatch", "quests", "raid", "hideout", "needed", "barters", "crafts", "ammo",
   "maps", "bosses", "traders", "achievements", "display", "settings"];
 const SUSPICIOUS = /\bundefined\b|\bNaN\b|\[object Object\]|\bInfinity\b|\bnull\b/;
 

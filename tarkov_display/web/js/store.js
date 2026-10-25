@@ -15,6 +15,7 @@ export const store = {
   data: {},       // dataset name -> {data, updated, error}
   scans: [],
   gameEvents: [],  // from the game log reader / TarkovTracker
+  pricewatch: null,  // items far from their weekly average (views/pricewatch.js)
 };
 
 const listeners = new Set();
@@ -27,6 +28,7 @@ export async function loadBoot() {
   store.progress = store.boot.progress;
   store.markers = store.boot.markers || {};
   store.display = store.boot.display;
+  store.pricewatch = store.boot.pricewatch || null;
   return store.boot;
 }
 
@@ -77,6 +79,29 @@ export async function setMarkers(op) {
   store.markers = await api("markers", { method: "POST", body: op });
   emit("markers");
   return store.markers;
+}
+
+// Asking for the price watch also starts a check if the prices changed since
+// the last one; its result arrives as a "pricewatch" event. A quick check's
+// event can arrive before the answer that started it: keep the newer one.
+export function setPricewatch(w) {
+  const have = store.pricewatch;
+  if (!w || (have && (have.version || 0) > (w.version || 0))) return have;
+  store.pricewatch = w;
+  emit("pricewatch");
+  return w;
+}
+
+export async function loadPricewatch() {
+  return setPricewatch(await api("pricewatch"));
+}
+
+export async function pricewatchChange(settings) {
+  return setPricewatch(await api("pricewatch", { method: "POST", body: settings }));
+}
+
+export async function pricewatchCheck() {
+  return setPricewatch(await api("pricewatch/check", { method: "POST", body: {} }));
 }
 
 export async function displayChange(op) {

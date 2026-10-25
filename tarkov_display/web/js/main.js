@@ -4,11 +4,11 @@ import { openItem, setItemOpener, thumb } from "./components.js";
 import { close as closeItem, openItemPanel, refreshPanel } from "./item.js";
 import { fmt, h, icon, mount, toast, TOKEN } from "./lib.js";
 import { onGameEvent } from "./link.js";
-import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, store } from "./store.js";
+import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, setPricewatch, store } from "./store.js";
 
 const NAV = [
   ["Overview", [["home", "Home", "home"]]],
-  ["Market", [["items", "Prices", "items"], ["barters", "Barters", "barters"], ["crafts", "Crafts", "crafts"], ["ammo", "Ammo", "ammo"]]],
+  ["Market", [["items", "Prices", "items"], ["pricewatch", "Price watch", "trend"], ["barters", "Barters", "barters"], ["crafts", "Crafts", "crafts"], ["ammo", "Ammo", "ammo"]]],
   ["Progress", [["quests", "Quests", "quests"], ["raid", "Raid plan", "raid"], ["hideout", "Hideout", "hideout"], ["needed", "Needed items", "needed"], ["achievements", "Achievements", "achievements"]]],
   ["World", [["maps", "Maps", "maps"], ["bosses", "Bosses", "bosses"], ["traders", "Traders", "traders"]]],
   ["App", [["display", "Display", "display"], ["settings", "Settings", "settings"]]],
@@ -56,10 +56,33 @@ function shell() {
 
 function drawNav() {
   const pinned = (store.progress?.pinned || []).filter((id) => !(store.progress?.tasks || []).includes(id)).length;
+  const cheap = store.pricewatch?.cheap?.length || 0, high = store.pricewatch?.high?.length || 0;
+  const counts = {
+    raid: pinned ? [pinned, `${pinned} pinned`] : null,
+    pricewatch: cheap + high ? [cheap + high, `${cheap} cheap now, ${high} selling high`] : null,
+  };
   mount(navEl, NAV.map(([group, items]) => h("div.nav-group",
     h("div.nav-label", group),
     items.map(([name, label, ic]) => h("a.nav-link" + (current.name === name ? ".active" : ""), { href: "#/" + name },
-      icon(ic, 18), h("span", label), name === "raid" && pinned ? h("span.nav-count", { title: `${pinned} pinned` }, String(pinned)) : null)))));
+      icon(ic, 18), h("span", label), counts[name] ? h("span.nav-count", { title: counts[name][1] }, String(counts[name][0])) : null)))));
+}
+
+// A note when items join the price watch's lists (with background checks on).
+function announceDeals(news) {
+  const joined = [...(news?.cheap || []).map((id) => ["cheap", id]), ...(news?.high || []).map((id) => ["high", id])];
+  if (!joined.length) return;
+  const w = store.pricewatch || {};
+  if (joined.length === 1) {
+    const [kind, id] = joined[0];
+    const e = (w[kind] || []).find((x) => x.id === id);
+    if (!e) return;
+    toast(`Price watch: ${e.name} is ${fmt.pct(Math.abs(e.diff))} ${kind === "cheap" ? "below" : "above"} its weekly average (${fmt.rub(e.low)})`,
+      { action: () => openItem(e.id), actionLabel: "Details", timeout: 12000 });
+    return;
+  }
+  const cheap = news.cheap?.length || 0, high = news.high?.length || 0;
+  const parts = [cheap ? `${cheap} new cheap now` : "", high ? `${high} new selling high` : ""].filter(Boolean);
+  toast(`Price watch: ${parts.join(", ")}`, { action: () => { location.hash = "#/pricewatch"; }, actionLabel: "Show", timeout: 12000 });
 }
 
 function drawFoot() {
@@ -172,6 +195,7 @@ function connect() {
   es.addEventListener("data", json((d) => { invalidate(d.name); emit("data", d.name); }));
   es.addEventListener("progress", json((p) => { store.progress = p; emit("progress"); }));
   es.addEventListener("markers", json((m) => { store.markers = m; emit("markers"); }));
+  es.addEventListener("pricewatch", json((w) => { setPricewatch(w); drawNav(); announceDeals(w.new); }));
   es.addEventListener("display", json((d) => { store.display = d; emit("display"); }));
   es.addEventListener("scan", json((s) => {
     store.scans.unshift(s);

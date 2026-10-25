@@ -184,6 +184,18 @@ class Server:
         def settings(req, m, q, body):
             return ctx.settings_change(body)
 
+        @r("GET", "/api/pricewatch")
+        def pricewatch(req, m, q, body):
+            return ctx.pricewatch_state(check=True)
+
+        @r("POST", "/api/pricewatch")
+        def pricewatch_change(req, m, q, body):
+            return ctx.pricewatch_change(body)
+
+        @r("POST", "/api/pricewatch/check")
+        def pricewatch_check(req, m, q, body):
+            return ctx.pricewatch_check()
+
         @r("GET", "/api/scans")
         def scans(req, m, q, body):
             return ctx.recent_scans()

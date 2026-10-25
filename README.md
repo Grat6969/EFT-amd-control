@@ -16,6 +16,9 @@ the installer and start RaidReady from the Start menu. Nothing else to install.
 - **Price check in game**: hover over an item and press `Ctrl+Alt+P` for its flea price,
   best trader, price per slot, and whether your quests or hideout still need it. Or turn
   on **hover price check** and the price pops up just by resting the mouse on an item.
+- **Price watch**: items whose lowest flea offer is 50% or more below their 7-day average
+  (worth buying) or above it (worth selling), checked after every price update, with a
+  note in the app when an item joins a list.
 - **Your own map markers**: right-click a map to drop a marker with a note (loot spots,
   key doors, good angles). Pop the map out into its own window to keep it on a second
   screen. With the game log reader on, it switches to the map you load into.
@@ -94,6 +97,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 |------|--------------|
 | **Home** | Game server status, trader restock timers, where the Goons were last seen, wipe day, your progress, best value per slot |
 | **Prices** | Every item with flea average, lowest listing, 48h change, best trader, price per slot, and whether your open quests or hideout need it. Click any item for details |
+| **Price watch** | Items 50% or more below their 7-day average price (cheap now) or above it (selling high), with the saving, best trader, value after the flea fee, and whether your quests or hideout need them. Choose the percentage and a minimum price |
 | **Item details** | All sell and buy offers (trader levels, limits, quest locks), 7-day price chart, flea fee calculator, where it's needed, barters and crafts that make or use it |
 | **Barters** | Every trader barter with cost, value and profit at today's prices |
 | **Crafts** | Hideout crafts ranked by profit per hour; filter to stations you've built |
@@ -225,6 +229,30 @@ If it misreads items, turn on **Display → Price check → Save each capture** 
 go to `%APPDATA%\TarkovDisplay\scans`) or run `python -m tarkov_display scan --debug`.
 The capture area can be adjusted in `config.json` under `"scan"`.
 
+## Price watch
+
+**Market → Price watch** keeps two lists:
+
+- **Cheap now**: items whose lowest flea offer is at least 50% below their average price
+  over the last 7 days: worth buying. When a trader pays more than that offer, the list
+  says so.
+- **Selling high**: items whose lowest offer is at least 50% above their 7-day average:
+  worth selling if you have one. The list shows what you'd get after the flea fee.
+
+You can change the percentage (20% to 80%) and leave out cheap items (**Worth at least**,
+10 000 ₽ by default, compared with the 7-day average). With **Watch in the background**
+on (the default), it checks after every price update (every 15 minutes, and when a raid
+ends with the game log reader on) and pops up a note in the app window when an item
+joins a list. Click an item for its 7-day price chart.
+
+How it works: the price list has every item's lowest offer and 24-hour average, but a
+7-day average takes the item's price history from tarkov.dev. Rather than download
+thousands of histories, RaidReady looks up the items whose price moved a lot (lowest
+offer far from the 24-hour average, or a big change over 48 hours), a few dozen per
+check, and keeps each 7-day average for hours. A move older than a couple of days has
+mostly worked its way into the 7-day average anyway. Flea prices change fast: a cheap
+offer may be gone by the time you get there.
+
 ## Display settings
 
 While the Tarkov window is focused, the app applies a display profile through your
@@ -274,7 +302,8 @@ If another program already uses one of these, Windows gives it to that program; 
   data files tarkov.dev's website loads (`json.tarkov.dev`), and only falls back to
   their GraphQL API, which is often overloaded ("GraphQL server unavailable"). Prices
   refresh every 15 minutes, and right after each raid with the game log reader on;
-  quests, hideout and the rest every few hours. Everything is cached, so the app still
+  quests, hideout and the rest every few hours. Item price histories (the 7-day chart
+  and the price watch) come from the same files. Everything is cached, so the app still
   works offline with the last data it downloaded.
 - **tarkov.dev's website data on GitHub**: which map images exist (and who made them)
   and wipe dates.

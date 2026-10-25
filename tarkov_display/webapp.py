@@ -11,13 +11,14 @@ from collections import deque
 from dataclasses import asdict
 from typing import List, Optional
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, staticapi
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
 from .markers import Markers
 from .ocr import available_engine
 from .prices import PriceDB, rub
+from .pricewatch import FETCHES_NOW, FETCHES_PER_CHECK, PriceWatch
 from .profiles import BUILTIN_PROFILES, Profile, load_config
 from .progress import Progress
 from .server import Server, find_running
@@ -33,12 +34,13 @@ HOVER_POPUP_SECONDS = 60   # a hover price stays until you move the mouse away, 
 UPDATE_CHECK_EVERY = 6 * 3600
 RAID_REFRESH_GAP = 120     # a burst of "raid over" messages refreshes once
 AFTER_RAID = ("traders",)  # besides prices: trader restock timers
+WATCH_FRESH = 30 * 60      # the price watch announces deals only from a price list this new
 
 
 def _clamp(value, lo, hi, kind=float):
     try:
         return max(lo, min(hi, kind(value)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         raise ValueError(f"not a number: {value!r}") from None
 
 
@@ -74,6 +76,9 @@ class WebApp:
         self.app.on_hover_toggled = self._hover_toggled
         self.app.popup_rect = self._popup_rect
         self._raid_refreshed = 0.0
+        self.watch = self._make_watch(cfg.game_mode, self.app.prices, self.store)
+        self._watched_prices = 0.0  # the price list the price watch last checked
+        self._watch_version = 0     # goes up whenever a check starts or ends (see pricewatch_state)
         self.link = GameLink(self)
         self.server = self._bind(port or cfg.port, restarted)
 
@@ -81,6 +86,11 @@ class WebApp:
 
     def _make_store(self, mode: str) -> DataStore:
         return DataStore(self.cfg_dir, mode, on_update=self._on_data)
+
+    def _make_watch(self, mode: str, prices: PriceDB, store: DataStore) -> PriceWatch:
+        client = store.client
+        return PriceWatch(lambda: prices.items, lambda item_id: staticapi.price_history(client, item_id),
+                          self.cfg_dir / f"pricewatch_{mode}.json")
 
     def _display_names(self) -> List[str]:
         try:
@@ -156,6 +166,7 @@ class WebApp:
             "progress": self.progress.snapshot(),
             "markers": self.markers.snapshot(),
             "display": self.display_state(),
+            "pricewatch": self.pricewatch_state(),
             "update": self.updater.last_check or None,
             "state": self.state(),
         }
@@ -215,6 +226,68 @@ class WebApp:
     @staticmethod
     def _in_background(fn) -> None:
         threading.Thread(target=fn, name="RaidRefresh", daemon=True).start()
+
+    # -- price watch (the lists themselves are worked out in pricewatch.py) --
+
+    def pricewatch_state(self, check: bool = False) -> dict:
+        """Both lists and the settings. ``check``: if the prices changed since
+        the last check, check again (in the background; the result is sent as
+        a "pricewatch" event). ``version`` tells the window which of two
+        states is newer: a quick check's event can overtake this answer."""
+        cfg, prices, watch = self.app.config.watch, self.app.prices, self.watch
+        if check and prices.items and prices.updated != self._watched_prices:
+            self._watch_now(quiet=True)
+        result = watch.result
+        state = {k: result.get(k) for k in ("cheap", "high", "checked", "compared", "waiting", "error")}
+        state.update(running=watch.running, pricesUpdated=prices.updated, version=self._watch_version,
+                     settings={"enabled": cfg.enabled, "threshold": cfg.threshold, "minPrice": cfg.min_price})
+        return state
+
+    def _next_watch_version(self) -> None:
+        with self._lock:
+            self._watch_version += 1
+
+    def pricewatch_change(self, body) -> dict:
+        if not isinstance(body, dict):
+            raise ValueError("bad request")
+        cfg = self.app.config.watch
+        if "enabled" in body:
+            cfg.enabled = bool(body["enabled"])
+        if "threshold" in body:
+            cfg.threshold = round(_clamp(body["threshold"], 0.1, 0.9), 2)
+        if "minPrice" in body:
+            cfg.min_price = _clamp(body["minPrice"], 0, 100_000_000, int)
+        self.app.save()
+        if self.app.prices.items:
+            self._watch_now(quiet=True)  # you're looking at the lists: no need to announce what's on them
+        return self.pricewatch_state()
+
+    def pricewatch_check(self) -> dict:
+        if not self.app.prices.items:
+            raise ValueError("Prices haven't been downloaded yet.")
+        self._watch_now(quiet=True, budget=FETCHES_NOW)
+        return self.pricewatch_state()
+
+    def _watch_now(self, quiet: bool, budget: int = FETCHES_PER_CHECK) -> None:
+        cfg, watch = self.app.config.watch, self.watch
+        self._watched_prices = self.app.prices.updated
+
+        def done(result: dict) -> None:
+            if watch is self.watch:  # not a check of the other game mode's prices, finished after a switch
+                self._next_watch_version()
+                self.publish("pricewatch", dict(self.pricewatch_state(), new=result.get("new")))
+
+        self._next_watch_version()
+        watch.request(done, threshold=cfg.threshold, min_price=cfg.min_price, budget=budget, quiet=quiet)
+
+    def _watch_after_update(self) -> None:
+        """With the price watch on: a check after every price update. Not on
+        an old price list kept from last time (it would announce deals that
+        are long gone): the app downloads a new one first thing."""
+        prices = self.app.prices
+        if (self.app.config.watch.enabled and prices.items and prices.updated != self._watched_prices
+                and prices.age < WATCH_FRESH):
+            self._watch_now(quiet=False)
 
     def data_status(self) -> dict:
         prices = self.app.prices
@@ -370,12 +443,14 @@ class WebApp:
             return
         prices = PriceDB(self.cfg_dir / f"prices_{mode}.json", mode)
         store, progress = self._make_store(mode), Progress(self.cfg_dir / f"progress_{mode}.json")
+        watch = self._make_watch(mode, prices, store)
         # All at once, so a quest read from the game logs meanwhile can't be
         # saved into the other mode's progress.
         with self.link.lock:
             cfg.game_mode = mode
             old, app.prices = app.prices, prices
             self.store, self.progress = store, progress
+            self.watch, self._watched_prices = watch, 0.0
             app.scanner = None
         app.save()
         old.stop()
@@ -585,6 +660,7 @@ class WebApp:
             if state != last_state:
                 self.publish("state", state)
                 last_state = state
+            self._watch_after_update()
             now = time.time()
             with self._lock:
                 clients, ever, left = self._clients, self._ever_connected, self._last_left
