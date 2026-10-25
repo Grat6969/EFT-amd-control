@@ -171,15 +171,25 @@ def test_threshold_and_minimum_price():
     assert ids(result["cheap"]) == [] and ids(result["high"]) == ["ledx"]
 
 
-def test_biggest_moves_are_looked_up_first():
+def test_most_roubles_at_stake_are_looked_up_first():
     items = [item(f"i{k}", 40_000, 40_000, -k * 10) for k in range(1, 9)]  # down 10%..80% over 48h
     w, _, hist, _ = watch_for(items, {f"i{k}": 100_000 for k in range(1, 9)})
+    w.averages["other"] = Average(NOW, 1, 1)  # not the very first check (see the next test)
     result = w.check(threshold=0.5, min_price=0, budget=3)
     assert sorted(hist.calls) == ["i6", "i7", "i8"]  # i1 barely moved: not looked up at all
     assert sorted(ids(result["cheap"])) == ["i6", "i7", "i8"] and result["waiting"] == 4
     result = w.check(threshold=0.5, min_price=0, budget=3)
     assert sorted(hist.calls[3:]) == ["i3", "i4", "i5"] and result["waiting"] == 1  # the next ones, not the same again
     assert len(result["cheap"]) == 6
+
+
+def test_the_first_check_looks_up_more():
+    items = [item(f"i{k}", 40_000, 40_000, -60) for k in range(150)]
+    w, _, hist, _ = watch_for(items, {f"i{k}": 100_000 for k in range(150)})
+    result = w.check(min_price=0, budget=10)
+    assert len(hist.calls) == pricewatch.FETCHES_FIRST and result["waiting"] == 150 - pricewatch.FETCHES_FIRST
+    w.check(min_price=0, budget=10)
+    assert len(hist.calls) == pricewatch.FETCHES_FIRST + 10
 
 
 def test_weekly_averages_are_kept_and_reused():

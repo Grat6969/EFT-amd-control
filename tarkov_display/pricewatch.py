@@ -23,13 +23,14 @@ Downloading thousands every 15 minutes would be rude, so:
 - Only items whose price list entry shows a big move are looked up: a
   lowest offer far under the 24h average, or a big change over 48 hours
   (thresholds measured on tarkov.dev's live data). Items with fewer than
-  two offers right now are skipped too. A move older than a couple of days
-  has mostly worked its way into the weekly average anyway: an item that
-  dropped 50% four days ago is now only about 30% below it.
+  MIN_OFFERS_NOW offers right now are skipped too. A move older than a
+  couple of days has mostly worked its way into the weekly average anyway:
+  an item that dropped 50% four days ago is now only about 30% below it.
 - A weekly average changes slowly, so each one is kept for hours (on disk
   too) and compared with the latest prices at every price update.
-- A check downloads a few dozen histories at most, biggest moves first;
-  the rest wait for the next check.
+- A check downloads a few dozen histories at most, the most roubles at
+  stake first (how big the move is times what the item is worth); the
+  rest wait for the next check.
 """
 
 from __future__ import annotations
@@ -54,12 +55,13 @@ LISTED_MAX_AGE = 6 * 3600      # look up an item on a list again after this long
 AVERAGE_MAX_AGE = 24 * 3600    # ... and any other item whose price still moves after this long
 AVERAGE_KEEP = 36 * 3600       # forget a weekly average older than this
 FETCHES_PER_CHECK = 40         # price histories downloaded per check after a price update...
-FETCHES_NOW = 120              # ... and per check you asked for
+FETCHES_NOW = 120              # ... per check you asked for...
+FETCHES_FIRST = 100            # ... and at least this many when nothing is known yet
 WORKERS = 4                    # downloads at a time
 MIN_POINTS = 12                # a weekly average needs this many prices...
 MIN_DAYS = 2.0                 # ... spread over at least this many days
 MIN_OFFERS = 3                 # usually listed fewer times than this: no real market price
-MIN_OFFERS_NOW = 2             # not even looked up with fewer offers than this right now
+MIN_OFFERS_NOW = 3             # not even looked up with fewer offers than this right now
 # A big move in the price list, as a share of the threshold (0.5 = 50%): the
 # lowest offer this far under the 24h average, or a 48h change this big.
 CHEAP_GAP = 0.9                # 45% under, for a 50% threshold
@@ -209,6 +211,8 @@ class PriceWatch:
                 log.debug("Price watch: no offer counts: %s", exc)
                 offers = {}
             wanted = self._wanted(items, threshold, min_price, now, offers)
+            if not self.averages:
+                budget = max(budget, FETCHES_FIRST)
             error = self._download(wanted[:max(0, budget)], now)
 
             lists: Dict[str, List[dict]] = {k: [] for k in LISTS}
@@ -256,20 +260,21 @@ class PriceWatch:
     def _wanted(self, items: List[Item], threshold: float, min_price: int, now: float,
                 offers: Dict[str, int]) -> List[Item]:
         """Items whose history should be looked up, most important first:
-        those on a list (to keep it right), then those whose price moved most."""
+        those on a list (to keep it right), then the most roubles at stake."""
         listed = set(self.since["cheap"]) | set(self.since["high"])
         ranked = []
         for item in items:
             avg = self.averages.get(item.id)
             age = now - avg.fetched if avg is not None else float("inf")
-            moved = signal(item, threshold)
+            moved, worth = signal(item, threshold), typical_price(item)
+            stake = min(moved, 3) * worth
             if item.id in listed:
                 if age >= LISTED_MAX_AGE:
-                    ranked.append((0, -moved, item))
-            elif (age >= AVERAGE_MAX_AGE and moved >= 1 and typical_price(item) >= min_price / 2
+                    ranked.append((0, -stake, item))
+            elif (age >= AVERAGE_MAX_AGE and moved >= 1 and worth >= min_price / 2
                   and offers.get(item.id, MIN_OFFERS_NOW) >= MIN_OFFERS_NOW):
-                ranked.append((1, -moved, item))
-        ranked.sort(key=lambda r: (r[0], r[1], -(r[2].avg24h or r[2].last_low or 0)))
+                ranked.append((1, -stake, item))
+        ranked.sort(key=lambda r: (r[0], r[1]))
         return [r[2] for r in ranked]
 
     def _download(self, items: List[Item], now: float) -> Optional[str]:

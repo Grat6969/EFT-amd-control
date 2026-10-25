@@ -291,6 +291,14 @@ def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> No
     elif empty:
         rep.warn("price history empty", empty[0])
     try:
+        counts = staticapi.offer_counts(client)
+        print(f"  offer counts             ok  {len(counts)} items, "
+              f"{sum(1 for n in counts.values() if n >= pricewatch.MIN_OFFERS_NOW)} with {pricewatch.MIN_OFFERS_NOW}+ offers")
+        if len(counts) < 1000:
+            rep.error(f"[{mode}] offer counts for only {len(counts)} items: the price watch can't skip thin markets")
+    except Exception:
+        rep.error(f"[{mode}] offer counts crashed:\n{traceback.format_exc()}")
+    try:
         start = time.time()
         watch = pricewatch.PriceWatch(lambda: items, lambda item_id: staticapi.price_history(client, item_id),
                                       offers=lambda: staticapi.offer_counts(client))
