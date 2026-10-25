@@ -75,7 +75,7 @@ function summary(w) {
   if (w.running && !w.checked) return "Looking up price histories…";
   const parts = [];
   if (w.checked) parts.push(`${fmt.num(w.compared)} items checked`);
-  if (w.waiting) parts.push(`${fmt.num(w.waiting)} more to look up`);
+  if (w.waiting) parts.push(`${fmt.num(w.waiting)} more to look up (a few dozen per update)`);
   parts.push(`prices ${fmt.ago(w.pricesUpdated)}`);
   return parts.join(" · ");
 }
@@ -86,7 +86,7 @@ function list(w, kind, needs, pct, redraw) {
     if (w.running && !w.checked) return loading("Looking up price histories…");
     const what = kind === "cheap" ? "below" : "above";
     return empty(`Nothing is ${pct} or more ${what} its weekly average right now.`,
-      w.waiting ? `Still looking up ${fmt.num(w.waiting)} items whose price moved: this fills in over the next few price updates.`
+      w.waiting ? `Still looking up ${fmt.num(w.waiting)} items whose price moved, a few dozen at each price update (every 15 minutes), most valuable first.`
         : "Prices move all the time: the app looks again after every price update.");
   }
   const now = Date.now() / 1000;
