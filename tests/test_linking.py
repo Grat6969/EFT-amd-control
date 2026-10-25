@@ -332,3 +332,38 @@ def test_seasonal_events_use_pvp_data(web):
     # tarkov.dev has no seasonal data set; no extra store or download for it.
     assert web.link.data_for("seasonal", "maps") is web.store.snapshot("maps")["data"]
     assert "seasonal" not in web.link._stores
+
+
+# -- fresh prices when a raid ends ----------------------------------------------------------
+
+
+def test_leaving_a_raid_refreshes_prices(web, monkeypatch):
+    from tarkov_display import gamelogs
+    from tarkov_display.webapp import RAID_REFRESH_GAP
+
+    refreshed, datasets = [], []
+    monkeypatch.setattr(web, "_in_background", lambda fn: fn())
+    monkeypatch.setattr(web.app.prices, "refresh", lambda fresh=False: refreshed.append(fresh) or True)
+    monkeypatch.setattr(web.store, "refresh_async", lambda name: datasets.append(name))
+
+    def raid_over(history=False):
+        web.link._on_event(gamelogs.Event("raid_end", "2026-10-25 20:40:00", {"map": "bigmap", "raidId": "AB12CD"}), history)
+        return [d for e, d in web.published if e == "gamelog"][-1]
+
+    event = raid_over()
+    assert refreshed == [True] and datasets == ["traders"]  # fresh prices, not a cached copy
+    assert event["refreshed"] is True and event["name"] == "Customs"
+    assert raid_over()["refreshed"] is None and refreshed == [True]  # the same raid's messages: once
+    web._raid_refreshed -= RAID_REFRESH_GAP + 1
+    raid_over()
+    assert refreshed == [True, True]
+
+    before = len(web.published)
+    raid_over(history=True)  # an old raid read from earlier logs: nothing to do
+    assert refreshed == [True, True] and len(web.published) == before
+
+    web._raid_refreshed = 0
+    assert web.link.logs_change({"refreshAfterRaid": False})["refreshAfterRaid"] is False
+    assert web.app.config.logs.refresh_after_raid is False
+    raid_over()
+    assert refreshed == [True, True]

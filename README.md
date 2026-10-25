@@ -146,6 +146,8 @@ Tarkov writes plain-text log files to the `Logs` folder in its install folder. W
 - marks a quest done the moment you finish it (and every quest before it),
 - opens your raid plan when you load into a map with pinned quests, otherwise that map's
   page (you can turn that off),
+- gets fresh prices from tarkov.dev as soon as a raid ends, so what you brought out shows
+  current prices (you can turn that off),
 - shows flea market sales,
 - warns you if Tarkov is in PvE but the app is showing PvP (or the other way round).
 
@@ -271,8 +273,9 @@ If another program already uses one of these, Windows gives it to that program; 
   [server status page](https://status.escapefromtarkov.com/). The app reads the same
   data files tarkov.dev's website loads (`json.tarkov.dev`), and only falls back to
   their GraphQL API, which is often overloaded ("GraphQL server unavailable"). Prices
-  refresh every 15 minutes; quests, hideout and the rest every few hours. Everything is
-  cached, so the app still works offline with the last data it downloaded.
+  refresh every 15 minutes, and right after each raid with the game log reader on;
+  quests, hideout and the rest every few hours. Everything is cached, so the app still
+  works offline with the last data it downloaded.
 - **tarkov.dev's website data on GitHub**: which map images exist (and who made them)
   and wipe dates.
 - **Map images** are made by the community artists credited on each map.

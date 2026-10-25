@@ -27,6 +27,7 @@ CURRENCY_SYMBOLS = {"\u20bd": "RUB", "$": "USD", "\u20ac": "EUR"}
 PAGE_SIZE = 500
 MAX_PAGES = 40
 NEEDS_MAX_AGE = 6 * 3600  # quest/hideout requirements only change with game patches
+FRESH_FILE_AGE = 30       # seconds: how old a shared data file a "fresh" refresh still accepts
 
 # Used for PvE, and for PvP if the item list fails. Paged so no single
 # request comes near tarkov.dev's 20 second limit.
@@ -306,15 +307,18 @@ class PriceDB:
                 break
         return parse_graphql_items(raw)
 
-    def fetch_items_files(self) -> List[Item]:
-        """From tarkov.dev's item data file (what their website uses)."""
-        return parse_graphql_items(staticapi.price_list(self.client, max_age=self.max_age / 3))
+    def fetch_items_files(self, fresh: bool = False) -> List[Item]:
+        """From tarkov.dev's item data file (what their website uses). The file
+        is shared with other data and kept a few minutes; ``fresh`` (after a
+        raid) only accepts a copy downloaded in the last half minute."""
+        max_age = FRESH_FILE_AGE if fresh else self.max_age / 3
+        return parse_graphql_items(staticapi.price_list(self.client, max_age=max_age))
 
-    def fetch_items(self) -> List[Item]:
+    def fetch_items(self, fresh: bool = False) -> List[Item]:
         # PvP: the small plain item list first. (It ignores PvE and returns PvP
         # prices, so PvE starts with the data file.) GraphQL comes last: it
         # often fails with "GraphQL server unavailable".
-        sources = [("data file", self.fetch_items_files), ("GraphQL", self.fetch_items_graphql)]
+        sources = [("data file", lambda: self.fetch_items_files(fresh)), ("GraphQL", self.fetch_items_graphql)]
         if self.game_mode != "pve":
             sources.insert(0, ("item list", self.fetch_items_lite))
         errors = []
@@ -359,10 +363,12 @@ class PriceDB:
             log.warning("Quest requirements unavailable: %s", exc)
         return hideout, quests
 
-    def refresh(self) -> bool:
+    def refresh(self, fresh: bool = False) -> bool:
+        """Download the price list now. ``fresh``: don't reuse a data file
+        downloaded a few minutes ago (see fetch_items_files)."""
         with self._lock:
             try:
-                items = self.fetch_items()
+                items = self.fetch_items(fresh)
             except Exception as exc:
                 self.error = str(exc)
                 log.warning("Could not update prices from tarkov.dev: %s", exc)

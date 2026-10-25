@@ -20,7 +20,7 @@ export function describeEvent(e) {
     case "raid":
       return { icon: "maps", text: `Loading into ${e.name || e.map || "a raid"}`, sub: e.online === false ? "offline raid" : "" };
     case "raid_end":
-      return { icon: "exit", text: `Left the raid${e.name ? ` on ${e.name}` : ""}`, sub: "" };
+      return { icon: "exit", text: `Left the raid${e.name ? ` on ${e.name}` : ""}`, sub: e.refreshed ? "refreshing prices" : "" };
     case "flea":
       return {
         icon: "items", kind: "good",
@@ -124,6 +124,8 @@ export function logsCard() {
           }, { kind: "small" }))),
       row("Show the raid plan or map when you load into a raid", "Opens your raid plan for that map if quests you pinned are on it, otherwise the map.",
         toggle("", st.autoMap, (v) => api("gamelog", { method: "POST", body: { autoMap: v } }))),
+      row("Refresh prices when you leave a raid", "Gets the latest flea and trader prices from tarkov.dev as soon as a raid ends, so what you brought out shows current prices.",
+        toggle("", st.refreshAfterRaid, (v) => api("gamelog", { method: "POST", body: { refreshAfterRaid: v } }))),
       row("Quests from old logs", "Tarkov keeps logs of earlier sessions. Finds quests you finished in them (and every quest before those).",
         button("Scan old logs", async () => {
           try { scan = await api("gamelog/scan", { method: "POST", body: {} }); drawScan(); }

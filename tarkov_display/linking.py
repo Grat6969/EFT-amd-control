@@ -118,6 +118,7 @@ class GameLink:
         f = self.follower
         return {
             "enabled": logs.enabled, "path": logs.path, "autoMap": logs.auto_map,
+            "refreshAfterRaid": logs.refresh_after_raid,
             "folder": str(found) if found else None,
             "detected": str(gamelogs.find_logs_folder() or "") or None,
             "session": f.session.name if f and f.session else None,
@@ -142,6 +143,8 @@ class GameLink:
             logs.enabled, restart = bool(body["enabled"]), True
         if "autoMap" in body:
             logs.auto_map = bool(body["autoMap"])
+        if "refreshAfterRaid" in body:
+            logs.refresh_after_raid = bool(body["refreshAfterRaid"])
         self.web.app.save()
         if restart:
             self.start_logs()
@@ -187,6 +190,8 @@ class GameLink:
                     payload.update(name=m["name"], normalizedName=m["normalizedName"], mapId=m.get("id"))
                     break
             payload["autoMap"] = self.cfg.logs.auto_map
+            if ev.kind == "raid_end" and self.cfg.logs.refresh_after_raid:
+                payload["refreshed"] = self.web.refresh_after_raid() or None
         elif ev.kind == "flea":
             if history:
                 return

@@ -31,6 +31,8 @@ CLOSE_GRACE = 8.0          # seconds after the last window closes before quittin
 REOPEN_AFTER = 40.0        # open a window if none connected this long after start
 HOVER_POPUP_SECONDS = 60   # a hover price stays until you move the mouse away, or this long
 UPDATE_CHECK_EVERY = 6 * 3600
+RAID_REFRESH_GAP = 120     # a burst of "raid over" messages refreshes once
+AFTER_RAID = ("traders",)  # besides prices: trader restock timers
 
 
 def _clamp(value, lo, hi, kind=float):
@@ -71,6 +73,7 @@ class WebApp:
         self.app.on_hover_leave = self._hover_leave
         self.app.on_hover_toggled = self._hover_toggled
         self.app.popup_rect = self._popup_rect
+        self._raid_refreshed = 0.0
         self.link = GameLink(self)
         self.server = self._bind(port or cfg.port, restarted)
 
@@ -194,6 +197,24 @@ class WebApp:
             raise KeyError(f"unknown dataset {name}")
         self.store.refresh_async(name)
         return self.store.snapshot(name)
+
+    def refresh_after_raid(self) -> bool:
+        """Fresh prices (and trader restock timers) from tarkov.dev when a raid
+        ends, so what you brought out shows today's prices. Runs in the
+        background; False if it already ran in the last couple of minutes."""
+        now = time.time()
+        if now - self._raid_refreshed < RAID_REFRESH_GAP:
+            return False
+        self._raid_refreshed = now
+        log.info("Raid over: refreshing prices from tarkov.dev")
+        self._in_background(lambda: self.app.prices.refresh(fresh=True))
+        for name in AFTER_RAID:
+            self.store.refresh_async(name)
+        return True
+
+    @staticmethod
+    def _in_background(fn) -> None:
+        threading.Thread(target=fn, name="RaidRefresh", daemon=True).start()
 
     def data_status(self) -> dict:
         prices = self.app.prices

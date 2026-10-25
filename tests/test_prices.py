@@ -253,6 +253,18 @@ def test_pve_never_uses_item_list(monkeypatch):
     assert all("gameMode: pve" in q for kind, q in api.calls)
 
 
+def test_fresh_refresh_skips_the_shared_file_cache(monkeypatch):
+    # After a raid, a data file downloaded a few minutes ago isn't good enough.
+    asked = []
+    monkeypatch.setattr(prices_mod.staticapi, "price_list",
+                        lambda client, max_age: asked.append(max_age) or API_ITEMS)
+    d = PriceDB(game_mode="pve")  # PvE prices come from the shared data file
+    d.needs_updated = __import__("time").time()  # quest/hideout needs are fresh: not fetched
+    assert d.refresh() is True and d.refresh(fresh=True) is True
+    assert asked == [d.max_age / 3, prices_mod.FRESH_FILE_AGE] and prices_mod.FRESH_FILE_AGE <= 60
+    assert len(d.items) == len(API_ITEMS)
+
+
 def test_error_message_when_tarkov_dev_is_down(monkeypatch):
     FakeTarkovDev(monkeypatch, lite_ok=False, graphql_ok=False)
     d = PriceDB()

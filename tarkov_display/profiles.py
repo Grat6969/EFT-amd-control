@@ -127,6 +127,7 @@ class LogsConfig:
     enabled: bool = False
     path: str = ""          # custom Logs folder; "" = find it automatically
     auto_map: bool = True   # show the map page when you load into a raid
+    refresh_after_raid: bool = True  # fresh prices from tarkov.dev when a raid ends
 
     @classmethod
     def from_dict(cls, data: dict) -> "LogsConfig":
