@@ -326,6 +326,14 @@ def main(argv=None) -> int:
     for mode in ("regular", "pve"):
         check_mode(rep, mode, args)
 
+    # Temporary: tune the price watch's rules on real prices (see tests/watch_study.py).
+    from tests import watch_study
+    for mode in ("regular", "pve"):
+        try:
+            watch_study.study(mode, 150)
+        except Exception:
+            traceback.print_exc()
+
     print("\n== warnings ==")
     for message, count in rep.warnings.most_common():
         example = rep.examples.get(message)
