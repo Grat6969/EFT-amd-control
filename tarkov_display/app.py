@@ -112,7 +112,7 @@ class App:
         threading.Thread(target=self._scan, name="Scan", daemon=True).start()
 
     def _scan(self) -> None:
-        result = self.scan_now(wait=True)
+        result = self.scan_now(wait=True, patient=True)
         if result is not None:
             self.scan_results.put(result)
 
@@ -133,13 +133,17 @@ class App:
         finally:
             self._scanning.release()
 
-    def scan_now(self, wait: bool = False, quiet: bool = False):
-        """Price-check the item under the cursor now (None if busy, see use_scanner)."""
+    def scan_now(self, wait: bool = False, quiet: bool = False, patient: bool = False):
+        """Price-check the item under the cursor now (None if busy, see use_scanner).
+        ``patient`` (Ctrl+Alt+P): wait a moment for the name tooltip if it isn't up yet."""
         from .scanner import ScanResult
 
         popup = self.popup_rect()
+        mask = [popup] if popup else []
         try:
-            return self.use_scanner(lambda s: s.scan(mask=[popup] if popup else (), quiet=quiet), wait)
+            if patient:
+                return self.use_scanner(lambda s: s.scan_waiting(mask), wait)
+            return self.use_scanner(lambda s: s.scan(mask=mask, quiet=quiet), wait)
         except Exception as exc:
             (log.debug if quiet else log.warning)("Scan failed: %s", exc)
             return ScanResult(None, error=str(exc))

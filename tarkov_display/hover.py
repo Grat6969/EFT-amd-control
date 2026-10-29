@@ -50,10 +50,11 @@ CURSOR_SHOWING = 0x1
 
 
 def shows_item(result) -> bool:
-    """Did a check name an item from its full name (which only the tooltip shows)?
-    The scanner decides how sure it has to be (see matching.py)."""
-    match = getattr(result, "match", None)
-    return bool(match and match.full)
+    """Did a check name an item? The scanner decides how sure it has to be
+    (see reader.py): a full read without a tooltip seen appearing only
+    answers from the tooltip's full name, a read of the tooltip box from the
+    name or the item's own corner label."""
+    return bool(getattr(result, "match", None))
 
 
 def _far(a, b, limit: float) -> bool:

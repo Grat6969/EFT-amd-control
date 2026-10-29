@@ -24,7 +24,14 @@ def named(item=GPU, score=1.0):
 
 
 def grid_label(item=GPU):
-    return ScanResult(Match(item, 0.98, item.short_name, full=False), [item.short_name])
+    """What reading a box that only holds the item's own grid label gives:
+    nothing (a bare short name in a tooltip box isn't a name; see reader.py)."""
+    return ScanResult(None, [item.short_name])
+
+
+def label_settled(item=GPU):
+    """A tooltip read that the item's corner label had to settle."""
+    return ScanResult(Match(item, 0.9, item.short_name, full=False), ["Graphlcs cad", f"label: {item.short_name}"])
 
 
 NOTHING = ScanResult(None, ["Stash"])
@@ -351,6 +358,7 @@ def test_distances_scale_with_the_screen():
 def test_shows_item():
     assert shows_item(named())
     assert not shows_item(grid_label())
+    assert shows_item(label_settled())  # the tooltip appeared; the label named the item
     assert not shows_item(NOTHING)
     assert not shows_item(None)
 
@@ -388,44 +396,90 @@ def test_blank_area():
     assert blank_area(img, w, h, -5, -5, 99, 99) == bytes(len(img))  # clipped to it
 
 
+TIP_BOX = (1015, 512, 1155, 536)  # where the tooltip shows, for the mouse at (1000, 500)
+
+
 class FakeScreen:
-    def __init__(self):
+    """A still white screen; with ``tip_after``, the tooltip box turns dark
+    from that many grabs on. ``moves``: where the mouse is at each look."""
+
+    def __init__(self, tip_after=None, moves=()):
         self.grabs = []
+        self.tip_after = tip_after
+        self.moves = list(moves)
+
+    def tip_on(self):
+        return self.tip_after is not None and len(self.grabs) > self.tip_after
 
     def cursor_pos(self):
-        return 1000, 500
+        return self.moves.pop(0) if self.moves else (1000, 500)
 
     def target_rect(self):
         return 0, 0, 1920, 1080
 
     def grab(self, x, y, w, h, scale=1):
         self.grabs.append((x, y, w, h, scale))
-        return b"\xff" * (w * scale * h * scale * 4), w * scale, h * scale
+        out = bytearray(b"\xff" * (w * scale * h * scale * 4))
+        if self.tip_on():
+            x0, y0, x1, y1 = TIP_BOX
+            for sy in range(max(y, y0), min(y + h, y1)):
+                for sx in range(max(x, x0), min(x + w, x1)):
+                    for dy in range(scale):
+                        i = (((sy - y) * scale + dy) * w * scale + (sx - x) * scale) * 4
+                        out[i:i + 4 * scale] = b"\x40" * (4 * scale)
+        return bytes(out), w * scale, h * scale
 
 
 class FakeOcr:
+    """Reads back texts placed at screen boxes (text, (left, top, right,
+    bottom)), as Windows OCR would from the screen's latest grab: a plain
+    string goes where the tooltip shows. ``when`` (optional third item):
+    a function saying whether it's on screen right now."""
+
     max_dimension = 2600
 
-    def __init__(self, lines=()):
-        self.lines = list(lines)
+    def __init__(self, screen, texts=()):
+        self.screen = screen
+        self.texts = [(t, (TIP_BOX[0] + 6, TIP_BOX[1] + 4, TIP_BOX[0] + 6 + 7 * len(t), TIP_BOX[3] - 6), None)
+                      if isinstance(t, str) else (t[0], t[1], t[2] if len(t) > 2 else None) for t in texts]
+        self.reads = 0
 
     def read(self, bgra, w, h):
+        from tarkov_display.ocr import OcrLine
+
         self.image = (bgra, w, h)
-        return list(self.lines)
+        self.reads += 1
+        x, y, gw, gh, scale = self.screen.grabs[-1]
+        out = []
+        for text, (x0, y0, x1, y1), when in self.texts:
+            if (when and not when()) or x1 <= x or y1 <= y or x0 >= x + gw or y0 >= y + gh:
+                continue
+            box = ((x0 - x) * scale, (y0 - y) * scale, (x1 - x) * scale, (y1 - y) * scale)
+            cx = int(min(w - 1, max(0, (box[0] + box[2]) / 2)))
+            cy = int(min(h - 1, max(0, (box[1] + box[3]) / 2)))
+            if bgra[(cy * w + cx) * 4:(cy * w + cx) * 4 + 4] == bytes(4):
+                continue  # blanked out (masked, or a part of the screen that didn't change)
+            out.append(OcrLine.of_words([(text, box)]))
+        return out
 
 
-def scanner_with(lines=(), items=None):
-    from tarkov_display.ocr import OcrLine
-
+def scanner_with(texts=(), items=None, screen=None):
     scanner = object.__new__(ItemScanner)
     items = items or [SimpleNamespace(id="gpu", name="Graphics card", short_name="GPU", is_preset=False),
-                      SimpleNamespace(id="toolset", name="Toolset", short_name="Toolset", is_preset=False)]
+                      SimpleNamespace(id="toolset", name="Toolset", short_name="Toolset", is_preset=False),
+                      SimpleNamespace(id="bolts", name="Bolts", short_name="Bolts", is_preset=False)]
     scanner.prices = SimpleNamespace(items=items)
     scanner.cfg = ScanConfig()
     scanner.debug_dir = None
-    scanner.screen, scanner.ocr = FakeScreen(), FakeOcr([OcrLine(t, 10, 10) for t in lines])
-    scanner._matcher = scanner._matcher_for = None
+    scanner.screen = screen or FakeScreen()
+    scanner.ocr = FakeOcr(scanner.screen, texts)
+    scanner._matcher = scanner._matcher_for = scanner._reader = scanner._reader_for = None
     return scanner
+
+
+OWN_LABEL = (1030, 452, 1052, 462)       # top right corner of the item the mouse is on
+LABEL_BELOW = (1004, 506, 1046, 516)     # the item below's label: nearer the mouse, but a neighbour's
+LABEL_LEFT = (900, 452, 940, 462)        # the item to the left's
 
 
 def test_scanner_blanks_the_masked_box():
@@ -445,16 +499,25 @@ def test_scanner_blanks_the_masked_box():
 
 def test_scanner_reads_just_the_tooltip_box():
     scanner = scanner_with(["Graphlcs card"])  # slightly misread
-    result = scanner.read_tooltip((1015, 512, 1155, 536), (1000, 500))
-    assert result.match.item.id == "gpu"
-    x, y, w, h, scale = scanner.screen.grabs[-1]
-    assert (x, y, w, h, scale) == (1009, 506, 152, 36, 3)  # the box plus a small margin, enlarged 3x
-    assert scanner_with(["GPU"]).read_tooltip((1015, 512, 1155, 536), (1000, 500)).match is None
+    result = scanner.read_tooltip(TIP_BOX, (1000, 500))
+    assert result.match.item.id == "gpu" and result.match.full
+    assert scanner.screen.grabs == [(1009, 506, 152, 36, 3)]  # the box plus a small margin, enlarged 3x: clear enough
+    assert scanner_with(["GPU"]).read_tooltip(TIP_BOX, (1000, 500)).match is None
+
+
+def test_a_doubtful_tooltip_is_settled_by_the_items_own_label():
+    items = [SimpleNamespace(id=f"k{n}", name=f"Dorm room {n} key", short_name=str(n), is_preset=False) for n in (203, 206, 208)]
+    scanner = scanner_with(["Dorm room 20? key", ("206", OWN_LABEL), ("203", LABEL_BELOW)], items)
+    result = scanner.read_tooltip(TIP_BOX, (1000, 500))
+    assert result.match.item.id == "k206" and len(scanner.screen.grabs) == 2  # the label was read too
+    assert "label: 206" in result.lines
+    unsettled = scanner_with(["Dorm room 20? key"], items)  # no label to go on: no guess
+    assert unsettled.read_tooltip(TIP_BOX, (1000, 500)).match is None
 
 
 def test_scanner_reads_only_the_parts_that_changed():
     scanner = scanner_with(["Graphics card"])
-    scanner.read_tooltip((1015, 512, 1155, 536), (1000, 500), keep=[(1015, 512, 140, 24)])
+    scanner.read_tooltip(TIP_BOX, (1000, 500), keep=[(1015, 512, 140, 24)])
     bgra, iw, ih = scanner.ocr.image
     px = lambda x, y: bgra[(y * iw + x) * 4:(y * iw + x) * 4 + 4]
     assert px(0, 0) == bytes(4)              # the margin around it: nothing changed there, left out
@@ -462,17 +525,56 @@ def test_scanner_reads_only_the_parts_that_changed():
 
 
 def test_strict_full_reads_ignore_possible_grid_labels():
-    assert scanner_with(["Toolset"]).scan(strict=True).match is None
-    assert scanner_with(["Toolset"]).scan().match.item.id == "toolset"
+    assert scanner_with([("Toolset", OWN_LABEL)]).scan(strict=True).match is None
+    assert scanner_with([("Toolset", OWN_LABEL)]).scan().match.item.id == "toolset"  # its own label
     assert scanner_with(["Graphics card"]).scan(strict=True).match.item.id == "gpu"
+
+
+def test_a_neighbours_label_is_never_taken_for_the_items_own():
+    assert scanner_with([("Toolset", LABEL_LEFT)]).scan().match is None
+    assert scanner_with([("Bolts", LABEL_BELOW)]).scan().match is None
+    result = scanner_with([("Bolts", LABEL_BELOW), ("Toolset", LABEL_LEFT), ("GPU", OWN_LABEL)]).scan()
+    assert result.match.item.id == "gpu" and not result.match.full
+
+
+def test_ctrl_alt_p_waits_for_the_tooltip():
+    # Pressed as the mouse stopped: only a neighbour's label so far; the
+    # tooltip shows a few looks later and is read.
+    screen = FakeScreen(tip_after=4)
+    scanner = scanner_with([("Bolts", LABEL_BELOW), ("Graphics card", TIP_BOX, screen.tip_on)], screen=screen)
+    naps = []
+    result = scanner.scan_waiting(sleep=naps.append)
+    assert result.match.item.id == "gpu" and result.match.full
+    assert 2 <= len(naps) <= 8
+
+
+def test_ctrl_alt_p_with_the_tooltip_up_answers_at_once():
+    scanner = scanner_with(["Graphics card"])
+    naps = []
+    assert scanner.scan_waiting(sleep=naps.append).match.item.id == "gpu" and naps == []
+    assert scanner.ocr.reads == 1
+
+
+def test_ctrl_alt_p_stops_waiting_when_the_mouse_moves_or_time_is_up():
+    screen = FakeScreen(moves=[(1000, 500), (1000, 500), (1000, 500), (1100, 500)])
+    scanner = scanner_with([("GPU", OWN_LABEL)], screen=screen)
+    naps = []
+    result = scanner.scan_waiting(sleep=naps.append)
+    assert result.match.item.id == "gpu" and not result.match.full and len(naps) < 4  # the label read stands
+
+    clock = iter(range(0, 100)).__next__  # a second per look
+    scanner = scanner_with([("Bolts", LABEL_BELOW)])
+    naps = []
+    assert scanner.scan_waiting(sleep=naps.append, clock=lambda: float(clock())).match is None
+    assert len(naps) <= 2
 
 
 def test_snapshots_and_areas():
     scanner = scanner_with()
     area = scanner.area_at((1000, 500))
-    assert (area.x, area.y, area.w, area.h, area.cursor, area.k) == (840, 410, 680, 180, (1000, 500), 1.0)
-    snap = scanner.snapshot(area, [(840, 410, 10, 10)])
-    assert scanner.screen.grabs[-1] == (840, 410, 680, 180, 1)
+    assert (area.x, area.y, area.w, area.h, area.cursor, area.k) == (840, 300, 680, 290, (1000, 500), 1.0)
+    snap = scanner.snapshot(area, [(840, 300, 10, 10)])
+    assert scanner.screen.grabs[-1] == (840, 300, 680, 290, 1)
     assert snap[:4] == bytes(4) and snap[-4:] == b"\xff" * 4
 
 

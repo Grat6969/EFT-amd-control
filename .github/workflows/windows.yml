@@ -44,4 +44,4 @@ jobs:
       - name: Price check accuracy
         if: always() && matrix.python == '3.12'
         continue-on-error: true
-        run: python -m tests.reader_bench --trials 120 --dump-items
+        run: python -m tests.reader_bench --trials 120

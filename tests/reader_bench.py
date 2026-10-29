@@ -10,7 +10,9 @@ own scanner reads it, with Windows OCR (Tesseract where Windows OCR isn't
 installed), three ways:
 
 - Ctrl+Alt+P with the tooltip showing
-- Ctrl+Alt+P pressed before the tooltip showed (only grid labels to go on)
+- Ctrl+Alt+P pressed before the tooltip shows: the reader alone, with only
+  grid labels to go on, and the whole price check, which waits for the
+  tooltip (it shows a few looks later)
 - hover price check (the tooltip appears after the mouse stops)
 
 and so does a frozen copy of the v1.8.3 reader, for comparison. Wrong
@@ -246,6 +248,23 @@ class FakeScreen:
         return crop.convert("RGBA").tobytes("raw", "BGRA"), w * scale, h * scale
 
 
+class SwitchingScreen:
+    """The stash as the mouse stops: the tooltip shows from the ``after``-th grab on."""
+
+    def __init__(self, plain, tip, after):
+        self.plain, self.tip, self.after, self.grabs = plain, tip, after, 0
+
+    def cursor_pos(self):
+        return self.plain.cursor
+
+    def target_rect(self):
+        return self.plain.target_rect()
+
+    def grab(self, x, y, w, h, scale=1):
+        self.grabs += 1
+        return (self.tip if self.grabs > self.after else self.plain).grab(x, y, w, h, scale)
+
+
 CONFUSIONS = {"0": "O", "O": "0", "o": "0", "1": "l", "l": "1", "I": "l", "i": "l", "5": "S", "S": "5", "6": "8",
               "8": "6", "3": "8", "B": "8", "Z": "2", "2": "Z", "g": "9", "e": "c", "c": "e", "u": "v", "n": "h"}
 
@@ -288,18 +307,33 @@ class OracleOcr:
             if bgra[i:i + 4] == bytes(4):
                 continue  # blanked out
             box = ((x0 - x) * scale, (y0 - y) * scale, (x1 - x) * scale, (y1 - y) * scale)
-            lines.append([self.misread(text), box])
+            lines.append([self.misread(text), box, self.words(self.misread(text), box)])
         # OCR joins words on a line that are near each other.
         lines.sort(key=lambda t: (round(t[1][1] / (8 * scale)), t[1][0]))
         joined: list = []
-        for text, box in lines:
+        for text, box, words in lines:
             last = joined[-1] if joined else None
             if last and abs(last[1][1] - box[1]) < 4 * scale and 0 <= box[0] - last[1][2] < 14 * scale:
                 last[0] += " " + text
                 last[1] = (last[1][0], min(last[1][1], box[1]), box[2], max(last[1][3], box[3]))
+                last[2] += words
             else:
-                joined.append([text, box])
-        return [OcrLine(t, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2) for t, b in joined if t.strip()]
+                joined.append([text, box, list(words)])
+        return [OcrLine.of_words(words) for t, b, words in joined if t.strip() and words]
+
+    @staticmethod
+    def words(text, box):
+        """``text`` split into words, each with its share of ``box`` (by length)."""
+        parts = text.split()
+        if not parts:
+            return []
+        x0, y0, x1, y1 = box
+        per = (x1 - x0) / max(1, len(text))
+        out, at = [], x0
+        for part in parts:
+            out.append((part, (at, y0, at + per * len(part), y1)))
+            at += per * (len(part) + 1)
+        return out
 
 
 # -- the v1.8.3 reader, frozen for comparison -------------------------------------------------
@@ -403,10 +437,13 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
     outcome is "right", "wrong" or "none"."""
     from tarkov_display.tooltip import SCREEN_CHANGED, find_tooltips
 
-    want = scene.target.spec.item.id
+    want = scene.target.spec.item
 
     def outcome(item):
-        return "none" if item is None else ("right" if item.id == want else "wrong")
+        # Items that share a full name can't be told apart by reading it: either counts.
+        if item is None:
+            return "none"
+        return "right" if item.id == want.id or normalize(item.name) == normalize(want.name) else "wrong"
 
     plain, tip = screens(scene, visible)
     out = {}
@@ -415,6 +452,14 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
         result = scanner.scan()
         base_item, read = baseline_hotkey(screen, ocr, baseline, scene.cursor)
         out[name] = (outcome(result.match.item if result.match else None), outcome(base_item), read)
+
+    # Ctrl+Alt+P pressed just before the tooltip shows: the price check waits for it.
+    scanner.screen = SwitchingScreen(plain, tip, after=3)
+    ticks = iter(range(1000))
+    result = scanner.scan_waiting(sleep=lambda s: None, clock=lambda: next(ticks) * 0.08)
+    base_item, read = baseline_hotkey(plain, ocr, baseline, scene.cursor)  # v1.8.3 didn't wait
+    out["hotkey early, waits"] = (outcome(result.match.item if result.match else None), outcome(base_item),
+                                  result.lines)
 
     scanner.screen = plain
     area = scanner.area_at(scene.cursor)
@@ -446,9 +491,9 @@ def main(argv=None) -> int:
     parser.add_argument("--show", type=int, default=12, help="failures to print per scenario")
     parser.add_argument("--dump-items", action="store_true", help="print the item list (gzip, base64) at the end")
     args = parser.parse_args(argv)
-    try:
-        import PIL  # noqa: F401
-    except ImportError:
+    import importlib.util
+
+    if importlib.util.find_spec("PIL") is None:
         print("Needs Pillow: pip install pillow")
         return 2
 
@@ -470,7 +515,7 @@ def main(argv=None) -> int:
     db.set_items(items)
     scanner = object.__new__(ItemScanner)  # the real scanner, minus the real screen
     scanner.prices, scanner.cfg, scanner.debug_dir, scanner.ocr = db, ScanConfig(), None, ocr
-    scanner._matcher = scanner._matcher_for = None
+    scanner._matcher = scanner._matcher_for = scanner._reader = scanner._reader_for = None
     baseline = BaselineMatcher(items)
 
     rng = random.Random(args.seed)

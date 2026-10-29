@@ -102,10 +102,10 @@ class ScanConfig:
 
     # Area captured around the cursor, in pixels on a 1080p screen (scaled
     # for other resolutions). Covers Tarkov's name tooltip and the short
-    # name printed on the item's own grid cell.
+    # name printed in the item's top right corner, up to three cells above.
     left: int = 160
     right: int = 520
-    up: int = 90
+    up: int = 200
     down: int = 90
     scale: int = 2           # enlarge before OCR; small text reads better
     popup_seconds: float = 8.0
@@ -117,7 +117,10 @@ class ScanConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ScanConfig":
-        return _from_dict(cls, data)
+        cfg = _from_dict(cls, data)
+        if isinstance(data, dict) and data.get("up") == 90:  # the old default, saved by v1.8.3 and before
+            cfg.up = cls.up
+        return cfg
 
 
 @dataclass

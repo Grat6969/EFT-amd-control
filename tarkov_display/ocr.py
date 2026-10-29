@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .screen import to_bmp
 
@@ -28,11 +28,24 @@ class OcrUnavailable(RuntimeError):
     pass
 
 
+WordBox = Tuple[str, Tuple[float, float, float, float]]  # text, (left, top, right, bottom)
+
+
 @dataclass
 class OcrLine:
     text: str
     x: float  # centre of the line in image pixels
     y: float
+    words: Tuple[WordBox, ...] = ()  # each word and where it is (image pixels), left to right
+
+    @staticmethod
+    def of_words(words: List[WordBox]) -> "OcrLine":
+        x0 = min(b[0] for _, b in words)
+        y0 = min(b[1] for _, b in words)
+        x1 = max(b[2] for _, b in words)
+        y1 = max(b[3] for _, b in words)
+        ordered = tuple(sorted(words, key=lambda w: w[1][0]))
+        return OcrLine(" ".join(t for t, _ in ordered), (x0 + x1) / 2, (y0 + y1) / 2, ordered)
 
 
 def order_by_distance(lines: List[OcrLine], cx: float, cy: float) -> List[OcrLine]:
@@ -82,12 +95,12 @@ class WindowsOcr:
         result = asyncio.run(run())
         lines = []
         for line in result.lines:
-            words = list(line.words)
-            if not words:
-                continue
-            xs = [wd.bounding_rect.x for wd in words] + [wd.bounding_rect.x + wd.bounding_rect.width for wd in words]
-            ys = [wd.bounding_rect.y for wd in words] + [wd.bounding_rect.y + wd.bounding_rect.height for wd in words]
-            lines.append(OcrLine(line.text, (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2))
+            words = []
+            for wd in line.words:
+                r = wd.bounding_rect
+                words.append((wd.text, (r.x, r.y, r.x + r.width, r.y + r.height)))
+            if words:
+                lines.append(OcrLine.of_words(words))
         return lines
 
 
@@ -114,14 +127,7 @@ def parse_tesseract_tsv(tsv: str) -> List[OcrLine]:
         key = (cols[2], cols[3], cols[4])  # block, paragraph, line
         left, top, width, height = (int(c) for c in cols[6:10])
         groups.setdefault(key, []).append((left, top, width, height, cols[11].strip()))
-    lines = []
-    for words in groups.values():
-        x0 = min(w[0] for w in words)
-        x1 = max(w[0] + w[2] for w in words)
-        y0 = min(w[1] for w in words)
-        y1 = max(w[1] + w[3] for w in words)
-        lines.append(OcrLine(" ".join(w[4] for w in words), (x0 + x1) / 2, (y0 + y1) / 2))
-    return lines
+    return [OcrLine.of_words([(w[4], (w[0], w[1], w[0] + w[2], w[1] + w[3])) for w in words]) for words in groups.values()]
 
 
 class TesseractOcr:
