@@ -158,7 +158,9 @@ export default {
         h("div", { style: { marginTop: "8px" } }, toggle("Save each capture for troubleshooting", s.debug,
           (v) => displayChange({ op: "scan", settings: { debug: v } }), "Saves what was captured and read to %APPDATA%\\TarkovDisplay\\scans")),
         h("div.muted.small", { style: { marginTop: "10px" } },
-          "Or hover over an item until its name shows and press Ctrl+Alt+P. Without hover price check, the screen is only read when you press it. "
+          "Or rest the mouse on an item and press Ctrl+Alt+P: if its name tooltip isn't up yet, it waits a moment for it. "
+          + "Without hover price check, the screen is only read when you press it. When it can't tell which item it is "
+          + "(say, several items share the label), it says so instead of guessing. "
           + "Use Borderless window mode in Tarkov: in exclusive fullscreen the screenshot comes out black and the popup can't show."));
       drawHoverStatus();
     };
