@@ -445,13 +445,17 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
             return "none"
         return "right" if item.id == want.id or normalize(item.name) == normalize(want.name) else "wrong"
 
+    def told(result):  # what the reader chose and why, for the misses
+        got = result.match.item.name if result.match else "nothing"
+        return [f"-> {got} ({result.why})"]
+
     plain, tip = screens(scene, visible)
     out = {}
     for name, screen in (("hotkey + tooltip", tip), ("hotkey, no tooltip", plain)):
         scanner.screen = screen
         result = scanner.scan()
         base_item, read = baseline_hotkey(screen, ocr, baseline, scene.cursor)
-        out[name] = (outcome(result.match.item if result.match else None), outcome(base_item), read)
+        out[name] = (outcome(result.match.item if result.match else None), outcome(base_item), read + told(result))
 
     # Ctrl+Alt+P pressed just before the tooltip shows: the price check waits for it.
     scanner.screen = SwitchingScreen(plain, tip, after=3)
@@ -459,7 +463,7 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
     result = scanner.scan_waiting(sleep=lambda s: None, clock=lambda: next(ticks) * 0.08)
     base_item, read = baseline_hotkey(plain, ocr, baseline, scene.cursor)  # v1.8.3 didn't wait
     out["hotkey early, waits"] = (outcome(result.match.item if result.match else None), outcome(base_item),
-                                  result.lines)
+                                  result.lines + told(result))
 
     scanner.screen = plain
     area = scanner.area_at(scene.cursor)
@@ -474,7 +478,7 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
         if current is None:
             result = scanner.read_tooltip(found.box, scene.cursor, area.k, keep=found.keep)
             current = result.match.item if result.match else None
-            read += result.lines
+            read += result.lines + told(result)
         if old is None:
             old, _ = baseline_tooltip(tip, ocr, baseline, found.box, found.keep)
     where = f"tooltip at {scene.tip[1] if scene.tip else None}, boxes found {[f.box for f in boxes[:3]]}"
@@ -532,7 +536,8 @@ def main(argv=None) -> int:
             tally[scenario][f"baseline {old}"] += 1
             by_size[f"{scenario} | {'1x1' if spec.w * spec.h == 1 else 'bigger'}"][now] += 1
             if now != "right" and len(failures[scenario]) < args.show:
-                failures[scenario].append(f"{spec.item.name} [{spec.item.short_name}, {spec.w}x{spec.h}] -> {now}; read {read[:8]}")
+                failures[scenario].append(f"{spec.item.name} [{spec.item.short_name}, {spec.w}x{spec.h}] -> {now}; "
+                                          f"read {read[:8]} {read[-1]}")
     took = time.time() - started
 
     print(f"\n{args.trials} trials in {took:.0f}s ({took / max(1, args.trials):.2f}s each)\n")

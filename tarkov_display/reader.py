@@ -43,6 +43,7 @@ LABEL_MIN = 0.86    # ... and a label its short name this well
 LABEL_LIKE = 0.7    # text that fits some short name this well may be a label (and hides labels behind it)
 CLOSE = 0.3         # names within this many letter edits of the best fit count as "about as well"
 NEAR = 220          # the tooltip is read within this many pixels of the mouse (at 1080p)
+FAR_COST = 0.001    # ... and loses this much of its score per pixel away
 
 
 def canon(text: str) -> str:
@@ -194,10 +195,13 @@ class ItemIndex:
 
 @dataclass
 class Segment:
-    """A run of words close together on one line, in screen pixels."""
+    """A run of words close together on one line, in screen pixels.
+    ``piece``: for text joined from pieces, the length of the longest one
+    (a name it fits must be longer, or the join added nothing)."""
 
     text: str
     box: Box
+    piece: int = 0
 
     @property
     def height(self) -> float:
@@ -300,15 +304,17 @@ class Reader:
             q = canon(s.text)
             if len(q) < 3:
                 return False
-            # A bare short name is a grid label, unless it's wholly inside the tooltip box.
-            return q not in self.index.short or (inside is not None and _inside_share(s.box, inside) >= 0.9)
+            if inside is not None:
+                # A bare short name in the box: only if it's wholly inside (a label it clips isn't).
+                return q not in self.index.short or _inside_share(s.box, inside) >= 0.9
+            # Text that is (all but) word for word a short name is a grid label,
+            # even read with a letter or space wrong ("Weapon repairkit").
+            short = self.index.lookup(s.text, "short", k=1)
+            return not short or short[0][1] < 0.9
 
         out = [s for s in pool if may_be_tooltip(s)]
-        # Grid labels side by side aren't pieces of one tooltip: when the box
-        # isn't known, text that is word for word a short name isn't joined.
-        joinable = pool if inside is not None else [s for s in pool if canon(s.text) not in self.index.short]
         rows: List[List[Segment]] = []
-        for seg in sorted(joinable, key=lambda s: ((s.box[1] + s.box[3]) / 2, s.box[0])):
+        for seg in sorted(pool, key=lambda s: ((s.box[1] + s.box[3]) / 2, s.box[0])):
             mid = (seg.box[1] + seg.box[3]) / 2
             row = rows[-1] if rows else None
             if row and abs(mid - (row[-1].box[1] + row[-1].box[3]) / 2) <= 0.5 * max(seg.height, row[-1].height, 1):
@@ -323,45 +329,79 @@ class Reader:
                     if nxt.box[0] - run[-1].box[2] > 1.2 * max(nxt.height, run[-1].height, 1):
                         break
                     run.append(nxt)
-                    out.append(_join(run))
+                    joined = _join(run)
+                    if may_be_tooltip(joined):  # a label OCR split in two is still a label
+                        out.append(joined)
         by_top = sorted(pool, key=lambda s: (s.box[1], s.box[0]))
         for a, b in zip(by_top, by_top[1:]):
             if 0 <= b.box[1] - a.box[3] <= 1.2 * max(a.height, b.height) and abs(a.box[0] - b.box[0]) < 40 * k:
-                out.append(_join([a, b]))
+                joined = _join([a, b])
+                if may_be_tooltip(joined):
+                    out.append(joined)
         return out
 
     def own_label(self, segs: Sequence[Segment], cursor, k: float, exclude: Optional[Box] = None):
         """The item's own corner label: the nearest text above and right of the
         mouse that looks like a short name. (segment, evidence), or None when
-        that text doesn't read clearly as one: then it's no use taking the
-        next label along, which is some other item's."""
-        nearest = None
+        it doesn't read clearly as one: then it's no use taking the next label
+        along, which is some other item's."""
         usable = [s for s in segs if exclude is None or not _overlaps(s.box, exclude)]
+        nearest = None
         for seg in usable:
-            if not own_label_side(seg, cursor, k) or len(seg.text) > 24:
+            if not own_label_side(seg, cursor, k) or len(seg.text) > 40:
                 continue
             d = box_distance(cursor, seg.box)
             if nearest is not None and d >= nearest[0]:
                 continue
-            ev = self._evidence(seg, "short")
-            if ev and max(s for _, s in ev.values()) >= LABEL_LIKE:  # stack counts and the like don't count
-                nearest = (d, seg, ev)
+            if self._label_readings(seg, usable):
+                nearest = (d, seg)
         if nearest is None:
             return None
-        _, seg, ev = nearest
-        # OCR may have split the label in two ("TT" + "856A1", and TT alone is
-        # another item's): try it with the text right after it, keep the better.
-        h = max(seg.height, 1)
-        after = [s for s in usable if 0 <= s.box[0] - seg.box[2] <= 1.2 * h
-                 and abs((s.box[1] + s.box[3]) / 2 - (seg.box[1] + seg.box[3]) / 2) <= 0.5 * h]
-        if after:
-            joined = _join([seg, min(after, key=lambda s: s.box[0])])
-            jev = self._evidence(joined, "short")
-            if jev and max(s for _, s in jev.values()) >= max(s for _, s in ev.values()):
-                seg, ev = joined, jev
-        if max(s for _, s in ev.values()) < LABEL_MIN:
+        readings = self._label_readings(nearest[1], usable)
+        # The longest clear reading (TT 856A1, not just TT)... unless a longer
+        # one half-fits some other item: then it's unclear which it is
+        # ("Rtd Oni" for Red Oni: not the ONI mask).
+        readings.sort(key=lambda r: -len(canon(r[0].text)))
+        clear = [r for r in readings if r[1] >= LABEL_MIN]
+        if not clear:
             return None
+        seg, best, ev = clear[0]
+        mine = {i for i, (_, sc) in ev.items() if sc >= LABEL_MIN}
+        for other, score, oev in readings:
+            if len(canon(other.text)) > len(canon(seg.text)) and score < LABEL_MIN:
+                if not mine & {i for i, (_, sc) in oev.items() if sc >= LABEL_LIKE}:
+                    return None
         return seg, ev
+
+    def _label_readings(self, seg: Segment, usable: Sequence[Segment]):
+        """Ways to read ``seg`` as a label: as it is, its first or last words
+        (OCR may have run a neighbour's label into it), and joined with a piece
+        right beside it (OCR may have split it): [(segment, best fit, evidence)]
+        for those that look like a short name at all."""
+        h = max(seg.height, 1)
+        options = [seg]
+        words = seg.text.split()
+        if 1 < len(words) <= 5:
+            width = (seg.box[2] - seg.box[0]) / max(1, len(seg.text))
+            for n in range(1, len(words)):
+                head, tail = " ".join(words[:n]), " ".join(words[n:])
+                options.append(Segment(head, (seg.box[0], seg.box[1], seg.box[0] + width * len(head), seg.box[3])))
+                options.append(Segment(tail, (seg.box[2] - width * len(tail), seg.box[1], seg.box[2], seg.box[3])))
+        mid = (seg.box[1] + seg.box[3]) / 2
+        for s in usable:
+            if s is seg or abs((s.box[1] + s.box[3]) / 2 - mid) > 0.5 * h:
+                continue
+            if 0 <= s.box[0] - seg.box[2] <= 1.2 * h:
+                options.append(Segment(f"{seg.text} {s.text}", (seg.box[0], seg.box[1], s.box[2], seg.box[3])))
+            elif 0 <= seg.box[0] - s.box[2] <= 1.2 * h:
+                options.append(Segment(f"{s.text} {seg.text}", (s.box[0], seg.box[1], seg.box[2], seg.box[3])))
+        out = []
+        for option in options:
+            ev = self._evidence(option, "short")
+            best = max((sc for _, sc in ev.values()), default=0.0)
+            if best >= LABEL_LIKE:
+                out.append((option, best, ev))
+        return out
 
     def decide(self, segs: Sequence[Segment], cursor: Tuple[float, float], k: float = 1.0,
                tooltip_box: Optional[Box] = None, need_tooltip: bool = False) -> Decision:
@@ -379,12 +419,18 @@ class Reader:
         tips = []
         for seg in self.tooltip_segments(segs, cursor, k, tooltip_box):
             ev = self._evidence(seg, "full")
+            if seg.piece:
+                # Joined pieces only count for a name longer than any piece: two
+                # labels side by side ("SDiary Reshala") aren't the name "Diary".
+                ev = {i: e for i, e in ev.items() if len(canon(e[0].name)) > seg.piece + 2}
             if ev:
                 tips.append((max(s for _, s in ev.values()), seg, ev))
-        # Ties: the text more wholly inside the tooltip box, then the taller
-        # text (the tooltip's letters are bigger than grid labels'), then the nearer.
-        tips.sort(key=lambda t: (-round(t[0], 3), -(_inside_share(t[1].box, tooltip_box) if tooltip_box else 0),
-                                 -round(t[1].height), box_distance(cursor, t[1].box)))
+        # The tooltip shows right by the mouse: text further away counts a little
+        # less (a misread label 100 px off shouldn't beat a slightly misread
+        # tooltip). Ties: the text more wholly inside the tooltip box, then the
+        # taller text (the tooltip's letters are bigger than grid labels').
+        tips.sort(key=lambda t: (-round(t[0] - FAR_COST * box_distance(cursor, t[1].box) / k, 3),
+                                 -(_inside_share(t[1].box, tooltip_box) if tooltip_box else 0), -round(t[1].height)))
         tip = tips[0] if tips and tips[0][0] >= TOOLTIP_MIN - 0.1 else None
         label = self.own_label(segs, cursor, k, exclude=tooltip_box)
         if tip and tip[0] < TOOLTIP_MIN and label and not need_tooltip:
@@ -506,4 +552,5 @@ def _inside_share(a: Box, b: Box) -> float:
 
 def _join(parts: Sequence[Segment]) -> Segment:
     return Segment(" ".join(p.text for p in parts), (min(p.box[0] for p in parts), min(p.box[1] for p in parts),
-                                                     max(p.box[2] for p in parts), max(p.box[3] for p in parts)))
+                                                     max(p.box[2] for p in parts), max(p.box[3] for p in parts)),
+                   max(len(canon(p.text)) for p in parts))

@@ -182,15 +182,25 @@ sent to the TarkovTracker site you chose.
 
 ## Price check in game
 
-Hover over an item in your stash or a container until Tarkov shows its name, then
-press `Ctrl+Alt+P`. A small popup next to the mouse shows the flea price, best trader,
-price per slot, where to sell it, and which of **your unfinished** quests or hideout
-upgrades still need it. The popup never takes focus from the game.
+Rest the mouse on an item in your stash or a container and press `Ctrl+Alt+P`. A small
+popup next to the mouse shows the flea price, best trader, price per slot, where to
+sell it, and which of **your unfinished** quests or hideout upgrades still need it.
+The popup never takes focus from the game.
 
-It takes one screenshot around the mouse only when you press the hotkey, reads the
-name with Windows' built-in text recognition and looks it up in the price list. Run
-Tarkov in **Borderless** window mode; exclusive fullscreen hides the popup and gives
-black screenshots.
+It reads the name in the game's tooltip with Windows' built-in text recognition and
+looks it up in the price list. If you press the keys before the tooltip shows, it
+waits for it (up to a little over a second, watching small screenshots around the
+mouse; moving the mouse stops it). Run Tarkov in **Borderless** window mode;
+exclusive fullscreen hides the popup and gives black screenshots.
+
+How it tells which item you mean: the stash is full of text, since every item has its
+short name in its top right corner. The tooltip's full name is the only text just
+about the item under the mouse, so that decides. The item's own corner label (always
+above and to the right of the mouse, never a neighbour's below or to the left) breaks
+ties between names the read can't tell apart, such as a 6 read as an 8 in a key's
+name. When it isn't sure, it says so ("Could be Dorm room 206 key or Dorm room 208
+key") instead of naming the wrong item. Almost half of all items share their short
+name with others (26 items are labelled "FMJ"), so the label alone can't always say.
 
 ### Hover price check (no key needed)
 
@@ -201,12 +211,11 @@ appears, and it goes away when you move on to the next item.
 - It only runs while a Tarkov window is focused and the mouse pointer is showing
   (menus, stash, inventory, traders). The game hides the pointer while you play a raid,
   so nothing pops up mid-fight.
-- It waits for the game's name tooltip to **appear** and reads only that. Many items'
-  short names, printed on the grid (Toolset, Bolts, Pliers...), are also full names, and
-  a neighbour's label can be nearer the mouse than the tooltip; watching what appears
-  after the mouse stops tells them apart. If the game was already showing the tooltip,
-  it trusts only a name that can't be a grid label. If nothing shows for an item,
-  `Ctrl+Alt+P` still works.
+- It waits for the game's name tooltip to **appear** and reads that, plus the item's
+  own corner label when the name alone doesn't settle it. Watching what appears after
+  the mouse stops tells the tooltip apart from the names printed on the grid. If the
+  game was already showing the tooltip, it trusts only a full name. If nothing shows
+  for an item, `Ctrl+Alt+P` still works.
 - Once the mouse stops, it takes small screenshots around it for up to about a second
   and a half, until the tooltip has appeared, then reads it. It waits about a third of a
   second before the first read (change that under **Wait before checking**). Turn it off
@@ -220,7 +229,7 @@ If nothing shows up:
   run `install.bat` and restart the app) and whether another program already uses
   `Ctrl+Alt+P` (overlays such as Discord, Steam, AMD or NVIDIA often do; change it there).
 - Use **Borderless** window mode in Tarkov.
-- Wait until the item's name tooltip is showing before pressing the keys.
+- Keep the mouse still on the item until its name tooltip shows.
 - For hover price check, **Display → Price check** shows what it's doing, for example
   "waiting for Tarkov to be the focused window". If it keeps saying the pointer is
   hidden while you're in your stash, use `Ctrl+Alt+P` instead.
