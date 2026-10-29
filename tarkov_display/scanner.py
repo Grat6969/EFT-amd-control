@@ -114,9 +114,18 @@ class ItemScanner:
         bgra = blank_boxes(bgra, iw, ih, (x, y), mask, scale)
 
         lines = self.ocr.read(bgra, iw, ih)
-        self.last_segments = segments(lines, (x, y), scale)  # for the accuracy bench's diagnostics
-        decision = self.reader().decide(self.last_segments, cursor, self._k(), need_tooltip=strict)
+        segs = self.last_segments = segments(lines, (x, y), scale)  # (kept for the accuracy bench's diagnostics)
+        k = self._k()
+        decision = self.reader().decide(segs, cursor, k, need_tooltip=strict)
         texts = [l.text for l in order_by_distance(lines, cx * scale, cy * scale)]
+        if not strict and not _sure(decision):
+            # Not settled by the tooltip: read the item's own corner label too,
+            # on its own (it can be above the area read, for a tall item).
+            label = self._read_label(cursor, k, list(mask))
+            if label:
+                label_segs, label_texts = label
+                decision = self.reader().decide(segs + label_segs, cursor, k)
+                texts += [f"label: {t}" for t in label_texts]
         result = ScanResult(_match(decision), texts, cursor, why=decision.why, hint=decision.hint)
         return self._done(result, bgra, iw, ih, quiet, "hover" if strict else "scan")
 

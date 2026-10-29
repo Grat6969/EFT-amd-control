@@ -572,9 +572,9 @@ def test_ctrl_alt_p_stops_waiting_when_the_mouse_moves_or_time_is_up():
 def test_snapshots_and_areas():
     scanner = scanner_with()
     area = scanner.area_at((1000, 500))
-    assert (area.x, area.y, area.w, area.h, area.cursor, area.k) == (840, 300, 680, 290, (1000, 500), 1.0)
-    snap = scanner.snapshot(area, [(840, 300, 10, 10)])
-    assert scanner.screen.grabs[-1] == (840, 300, 680, 290, 1)
+    assert (area.x, area.y, area.w, area.h, area.cursor, area.k) == (840, 410, 680, 180, (1000, 500), 1.0)
+    snap = scanner.snapshot(area, [(840, 410, 10, 10)])
+    assert scanner.screen.grabs[-1] == (840, 410, 680, 180, 1)
     assert snap[:4] == bytes(4) and snap[-4:] == b"\xff" * 4
 
 

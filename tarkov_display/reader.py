@@ -326,7 +326,7 @@ class Reader:
             for i in range(len(row)):
                 run = [row[i]]
                 for nxt in row[i + 1:i + 4]:
-                    if nxt.box[0] - run[-1].box[2] > 1.2 * max(nxt.height, run[-1].height, 1):
+                    if nxt.box[0] - run[-1].box[2] > 3 * max(nxt.height, run[-1].height, 1):
                         break
                     run.append(nxt)
                     joined = _join(run)
@@ -425,14 +425,23 @@ class Reader:
                 ev = {i: e for i, e in ev.items() if len(canon(e[0].name)) > seg.piece + 2}
             if ev:
                 tips.append((max(s for _, s in ev.values()), seg, ev))
-        # The tooltip shows right by the mouse: text further away counts a little
-        # less (a misread label 100 px off shouldn't beat a slightly misread
-        # tooltip). Ties: the text more wholly inside the tooltip box, then the
-        # taller text (the tooltip's letters are bigger than grid labels').
-        tips.sort(key=lambda t: (-round(t[0] - FAR_COST * box_distance(cursor, t[1].box) / k, 3),
-                                 -(_inside_share(t[1].box, tooltip_box) if tooltip_box else 0), -round(t[1].height)))
+        if tooltip_box is not None:
+            # In the tooltip's box: the best fit; on a tie, text that isn't just
+            # a short name (the tooltip shows full names; a label the box edge
+            # takes in is one), then the text more wholly inside, then the taller.
+            tips.sort(key=lambda t: (-round(t[0], 3), canon(t[1].text) in self.index.short,
+                                     -_inside_share(t[1].box, tooltip_box), -round(t[1].height)))
+        else:
+            # The tooltip shows right by the mouse: text further away counts a
+            # little less (a misread label 100 px off shouldn't beat a slightly
+            # misread tooltip); then the taller text (bigger letters than labels').
+            tips.sort(key=lambda t: (-round(t[0] - FAR_COST * box_distance(cursor, t[1].box) / k, 3),
+                                     -round(t[1].height)))
         tip = tips[0] if tips and tips[0][0] >= TOOLTIP_MIN - 0.1 else None
-        label = self.own_label(segs, cursor, k, exclude=tooltip_box)
+        # The tooltip's own words aren't a label ("AR-15", first word of a
+        # tooltip just above the mouse, is also an item's short name).
+        exclude = tooltip_box or (tip[1].box if tip and tip[0] >= TOOLTIP_MIN else None)
+        label = self.own_label(segs, cursor, k, exclude=exclude)
         if tip and tip[0] < TOOLTIP_MIN and label and not need_tooltip:
             # A weak "tooltip" read (often neighbours' labels run together) doesn't
             # outrank a clear label of the item's own, unless they agree.
