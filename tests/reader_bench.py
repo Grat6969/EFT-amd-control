@@ -477,7 +477,8 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
             read += result.lines
         if old is None:
             old, _ = baseline_tooltip(tip, ocr, baseline, found.box, found.keep)
-    out["hover"] = (outcome(current), outcome(old), read or ["(no tooltip box found)"])
+    where = f"tooltip at {scene.tip[1] if scene.tip else None}, boxes found {[f.box for f in boxes[:3]]}"
+    out["hover"] = (outcome(current), outcome(old), (read or ["(no tooltip box found)"]) + [where])
     return out
 
 

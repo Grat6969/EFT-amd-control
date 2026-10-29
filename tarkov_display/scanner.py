@@ -47,7 +47,8 @@ class ScanResult:
     cursor: tuple = (0, 0)
     error: Optional[str] = None
     debug_file: Optional[Path] = None
-    why: str = ""  # how the reader decided (for the debug log)
+    why: str = ""   # how the reader decided (for the debug log)
+    hint: str = ""  # why there's no answer, for the player
 
 
 def capture_rect(cursor, screen_height: int, cfg: ScanConfig):
@@ -115,7 +116,7 @@ class ItemScanner:
         lines = self.ocr.read(bgra, iw, ih)
         decision = self.reader().decide(segments(lines, (x, y), scale), cursor, self._k(), need_tooltip=strict)
         texts = [l.text for l in order_by_distance(lines, cx * scale, cy * scale)]
-        result = ScanResult(_match(decision), texts, cursor, why=decision.why)
+        result = ScanResult(_match(decision), texts, cursor, why=decision.why, hint=decision.hint)
         return self._done(result, bgra, iw, ih, quiet, "hover" if strict else "scan")
 
     def scan_waiting(self, mask: Iterable[Mask] = (), wait: float = WAIT_FOR_TOOLTIP,
@@ -203,7 +204,7 @@ class ItemScanner:
                 label_segs, label_texts = label
                 decision = reader.decide(segs + label_segs, cursor, k, tooltip_box=box)
                 texts += [f"label: {t}" for t in label_texts]
-        result = ScanResult(_match(decision), texts, cursor, why=decision.why)
+        result = ScanResult(_match(decision), texts, cursor, why=decision.why, hint=decision.hint)
         return self._done(result, bgra, iw, ih, True, "tooltip")
 
     def _read_label(self, cursor, k: float, mask: List[Mask]):

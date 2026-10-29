@@ -576,9 +576,10 @@ class WebApp:
             self.popup.show("Price check failed", "", [], [("", result.error, BAD)], "", result.cursor, seconds)
         else:
             read = ", ".join(result.lines[:3])[:90] or "nothing"
-            self.popup.show("Couldn't identify the item", "", [], [
+            notes = [("", result.hint, MUTED)] if getattr(result, "hint", "") else []
+            self.popup.show("Couldn't identify the item", "", [], notes + [
                 ("", f"Read: {read}", MUTED),
-                ("", "Hover until the name tooltip shows, then press Ctrl+Alt+P again.", MUTED),
+                ("", "Rest the mouse on the item until its name pops up, then press Ctrl+Alt+P again.", MUTED),
             ], "", result.cursor, seconds)
 
     # -- background loops -----------------------------------------------

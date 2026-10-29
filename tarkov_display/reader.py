@@ -261,6 +261,7 @@ class Decision:
     full: bool = False      # named by a full name (the tooltip), not just a label
     why: str = ""           # for the debug log
     alternatives: List[Tuple[Item, float]] = field(default_factory=list)
+    hint: str = ""          # why there's no answer, for the player
 
 
 class Reader:
@@ -427,7 +428,7 @@ class Reader:
                 mine = [it for it, s in label[1].values() if s >= LABEL_MIN]
                 if mine and all(canon(it.name) not in close and self._score(tip[1].text, it, "full") < 0.6 for it in mine):
                     return Decision(None, best_t, tip[1].text, False, why + ": the tooltip read and the label disagree",
-                                    alternatives)
+                                    alternatives, "The name and the item's label don't match.")
             if label and full and box_distance(cursor, label[0].box) <= 80 * k:
                 # The item's own label, read clearly, names an item whose full name
                 # is a letter or two off the tooltip read, and doesn't fit the item
@@ -463,24 +464,28 @@ class Reader:
                     return Decision(item, round(min(1.0, (t1 + l1) / 2), 3), tip[1].text, full,
                                     why + f": the label picks it from {len(ranked)}", alternatives)
             names = " or ".join(item.name for _, item in ranked[:2])
-            return Decision(None, best_t, tip[1].text, full, why + f": {names}?", alternatives)
+            return Decision(None, best_t, tip[1].text, full, why + f": {names}?", alternatives, f"Could be {names}.")
 
         if need_tooltip or not label:
             return Decision(None, why=why + (": no full name" if need_tooltip else ": nothing to go on"))
-        # No tooltip: the item's own label alone, when its short name is clear and no one else's.
-        fits: Dict[str, Tuple[float, Item]] = {}
+        # No tooltip: the item's own label alone, when its short name is clear and
+        # no one else's. Closeness in letters again: TT 856A1 read exactly isn't
+        # about as good a read of TT 855A1; FMJ is just as much every FMJ's.
+        said = canon(label[0].text)
+        fits: Dict[str, Tuple[float, Item, float]] = {}
         for item, s in label[1].values():
             name = canon(item.name)
             if s >= LABEL_MIN and (name not in fits or fits[name][0] < s):
-                fits[name] = (s, item)
-        ranked = sorted(fits.values(), key=lambda c: (-c[0], c[1].is_preset))
-        if not ranked:
+                fits[name] = (s, item, distance(said, canon(item.short_name)))
+        if not fits:
             return Decision(None, why=why + ": too unsure")
+        fewest = min(f[2] for f in fits.values())
+        ranked = sorted(((s, it) for s, it, d in fits.values() if d <= fewest + CLOSE), key=lambda c: (-c[0], c[1].is_preset))
         s1, item = ranked[0]
         alternatives = [(i, round(s, 3)) for s, i in ranked[1:4]]
-        if len(ranked) > 1 and s1 - ranked[1][0] < 0.1:
+        if len(ranked) > 1:
             return Decision(None, s1, label[0].text, False, why + f": {len(ranked)} items have that short name",
-                            alternatives)
+                            alternatives, f"{len(ranked)} items are labelled \u201c{label[0].text}\u201d.")
         return Decision(item, round(s1 - 0.04, 3), label[0].text, False, why, alternatives)
 
 
