@@ -445,9 +445,16 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
             return "none"
         return "right" if item.id == want.id or normalize(item.name) == normalize(want.name) else "wrong"
 
-    def told(result):  # what the reader chose and why, for the misses
+    def told(result, segs=None):  # what the reader chose and why, for the misses
         got = result.match.item.name if result.match else "nothing"
-        return [f"-> {got} ({result.why})"]
+        out = [f"-> {got} ({result.why})"]
+        if segs is not None:  # the text near the mouse as the reader saw it
+            from tarkov_display.reader import box_distance
+
+            near = sorted(segs, key=lambda s: box_distance(scene.cursor, s.box))[:6]
+            out[0] += " | near: " + "; ".join(
+                f"{s.text!r}@{tuple(int(v - c) for v, c in zip(s.box, scene.cursor * 2))}" for s in near)
+        return out
 
     plain, tip = screens(scene, visible)
     out = {}
@@ -455,7 +462,8 @@ def run_trial(scene, visible, scanner, ocr, baseline) -> Dict[str, Tuple[str, st
         scanner.screen = screen
         result = scanner.scan()
         base_item, read = baseline_hotkey(screen, ocr, baseline, scene.cursor)
-        out[name] = (outcome(result.match.item if result.match else None), outcome(base_item), read + told(result))
+        out[name] = (outcome(result.match.item if result.match else None), outcome(base_item),
+                     read + told(result, getattr(scanner, "last_segments", None)))
 
     # Ctrl+Alt+P pressed just before the tooltip shows: the price check waits for it.
     scanner.screen = SwitchingScreen(plain, tip, after=3)

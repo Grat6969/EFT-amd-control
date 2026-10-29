@@ -114,7 +114,8 @@ class ItemScanner:
         bgra = blank_boxes(bgra, iw, ih, (x, y), mask, scale)
 
         lines = self.ocr.read(bgra, iw, ih)
-        decision = self.reader().decide(segments(lines, (x, y), scale), cursor, self._k(), need_tooltip=strict)
+        self.last_segments = segments(lines, (x, y), scale)  # for the accuracy bench's diagnostics
+        decision = self.reader().decide(self.last_segments, cursor, self._k(), need_tooltip=strict)
         texts = [l.text for l in order_by_distance(lines, cx * scale, cy * scale)]
         result = ScanResult(_match(decision), texts, cursor, why=decision.why, hint=decision.hint)
         return self._done(result, bgra, iw, ih, quiet, "hover" if strict else "scan")
