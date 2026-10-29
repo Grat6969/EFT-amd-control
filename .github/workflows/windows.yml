@@ -39,3 +39,9 @@ jobs:
       - name: Windows-only features
         if: always()
         run: python -m tests.windows_check
+      # How often the price check names the right item: made-up stash screens
+      # of real items, read by the app's scanner with Windows OCR (see the file).
+      - name: Price check accuracy
+        if: always() && matrix.python == '3.12'
+        continue-on-error: true
+        run: python -m tests.reader_bench --trials 120 --dump-items
