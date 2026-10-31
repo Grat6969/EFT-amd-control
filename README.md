@@ -107,7 +107,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
 | **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
 | **Achievements** | All achievements with rarity and how many players have them; tick off yours |
-| **Maps** | Zoomable 2D/3D map images with your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
+| **Maps** | A marker for every quest's objectives on its map, named and coloured per quest (see [Quest markers](#quest-markers)), zoomable 2D/3D map images, your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
 | **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
 | **Traders** | Restock countdowns, loyalty level requirements, everything each trader sells |
 | **Display** | Display profiles, auto-boost and price-check settings |
@@ -136,7 +136,35 @@ A map can have 15 open quests when you only mean to do three of them this raid.
    quest (with Undo); finished quests drop off the plan by themselves.
 
 The same how-and-where details are on every quest on the **Quests** page. With the game log
-reader on, loading into a raid opens the raid plan for that map.
+reader on, loading into a raid opens that map with markers for your raid plan's quests only
+(see below).
+
+## Quest markers
+
+**Maps → Quests** (the first picture of each map) shows a marker for every quest
+objective on that map, as tarkov.dev's interactive map has them:
+
+- **Circles** are objectives (places to visit, mark, plant something or kill in); the
+  shaded outline around one is the area that counts. **Diamonds** are places a quest
+  item can be (some items have several possible spots).
+- Each marker is named with its quest, and every quest on the map has its own colour.
+  A spot on another floor says which (for example "2nd Floor", "Underground").
+- Choose which quests to show: **Raid plan** (your pinned quests), **Available now**,
+  **Not done** (the default), **All quests** or **Off**. Objectives you've ticked off
+  drop off the map.
+- Click a marker to see its quest's objective, pin it to your raid plan, or open the
+  quest. The list under the map does the same, and zooms to a quest's markers.
+- **In a raid** (with the game log reader on): when you load into a raid, the map opens
+  (in the popped-out map window too) and shows **only the quests in your raid plan**.
+  When the raid ends it goes back to your usual choice. Pick another filter during a
+  raid to see everything.
+
+The markers are placed with tarkov.dev's own numbers for each map (the same arithmetic
+their interactive map uses), on their drawing of the map, which is made to the game's
+coordinates. The player-made 2D and 3D images don't come with coordinates, so quest
+markers are only on the **Quests** picture. Maps tarkov.dev has no drawing of (The Lab,
+Labyrinth, Icebreaker) use their satellite-style map tiles instead. tarkov.dev leaves out
+a few quest positions that are outside its map area, and so does the app.
 
 ## Automatic progress (optional)
 
@@ -148,8 +176,8 @@ Tarkov writes plain-text log files to the `Logs` folder in its install folder. W
 **Read Tarkov's log files** on, the app follows the current session's logs and:
 
 - marks a quest done the moment you finish it (and every quest before it),
-- opens your raid plan when you load into a map with pinned quests, otherwise that map's
-  page (you can turn that off),
+- opens the map when you load into a raid, with markers for your raid plan's quests
+  only (you can turn that off),
 - gets fresh prices from tarkov.dev as soon as a raid ends, so what you brought out shows
   current prices (you can turn that off),
 - shows flea market sales,
@@ -317,9 +345,12 @@ If another program already uses one of these, Windows gives it to that program; 
   quests, hideout and the rest every few hours. Item price histories (the 7-day chart
   and the price watch) come from the same files. Everything is cached, so the app still
   works offline with the last data it downloaded.
-- **tarkov.dev's website data on GitHub**: which map images exist (and who made them)
-  and wipe dates.
-- **Map images** are made by the community artists credited on each map.
+- **tarkov.dev's website data on GitHub**: which map images exist (and who made them),
+  how their interactive maps place game positions (for quest markers), and wipe dates.
+- **Map images** are made by the community artists credited on each map. The **Quests**
+  map pictures are tarkov.dev's
+  [SVG maps](https://github.com/the-hideout/tarkov-dev-svg-maps) (CC BY-NC-SA 4.0), or
+  their map tiles.
 - The flea fee formula is from tarkov.dev (MIT licence), which follows the game wiki.
 
 Other price sites (such as tarkov-market) need a paid API key, and scraping websites

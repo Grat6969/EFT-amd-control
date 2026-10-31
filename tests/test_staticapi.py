@@ -37,7 +37,9 @@ def files():
                  "distance": {"compareMethod": ">=", "value": 50}, "timeFromHour": 22, "timeUntilHour": 5,
                  "usingWeapon": ["ammo-ps"], "usingWeaponMods": [["marker"]], "wearing": [[{"id": "key-dorm"}]],
                  "notWearing": [{"id": "marker"}],
-                 "zones": [{"id": "zone-dorms", "map": "customs", "name": "zone-dorms", "position": {"x": 1, "y": 2, "z": 3}}],
+                 "zones": [{"id": "zone-dorms", "map": "customs", "name": "zone-dorms", "position": {"x": 1, "y": 2, "z": 3.14159},
+                            "outline": [{"x": 0, "y": 2, "z": 0}, {"x": 2, "y": 2, "z": 0}, {"x": 2, "y": 2, "z": "bad"}],
+                            "top": 4.5, "bottom": True}],
                  "healthEffect": {"bodyParts": ["Chest"], "effects": ["Fracture"]}},
                 {"id": "obj-extract", "type": "extract", "description": "obj-extract", "optional": False,
                  "maps": ["customs"], "count": 1, "exitStatus": ["Survived", "Runner"], "exitName": "ex1 key"},
@@ -279,11 +281,14 @@ def test_tasks():
     assert shoot["maps"] == [{"id": "customs", "name": "Customs", "normalizedName": "customs"}]
     assert shoot["shotType"] == "kill" and shoot["bodyParts"] == ["Head"] and shoot["distance"]["value"] == 50
     assert (shoot["timeFromHour"], shoot["timeUntilHour"]) == (22, 5)
-    assert shoot["zones"] == [{"id": "zone-dorms", "map": {"id": "customs"}}] and shoot["zoneNames"] == ["Dorms"]
+    # Zones keep their place in the game (for quest markers), rounded; anything malformed is left out.
+    assert shoot["zones"] == [{"id": "zone-dorms", "map": {"id": "customs"}, "position": {"x": 1, "y": 2, "z": 3.14},
+                               "outline": [{"x": 0, "y": 2, "z": 0}, {"x": 2, "y": 2, "z": 0}], "top": 4.5}]
+    assert shoot["zoneNames"] == ["Dorms"]
     assert shoot["usingWeapon"] == [PS] and shoot["usingWeaponMods"][0][0]["id"] == "marker"
     assert shoot["wearing"][0][0]["name"] == "Dorm room 314 marked key" and shoot["notWearing"][0]["id"] == "marker"
     assert extract["exitStatus"] == ["Survived", "Run through"] and extract["exitName"] == "Crossroads"
-    assert find["questItem"]["name"] == "Secure folder" and find["possibleLocations"] == [{"map": {"id": "customs"}}]
+    assert find["questItem"]["name"] == "Secure folder" and find["possibleLocations"] == [{"map": {"id": "customs"}, "positions": [{"x": 1, "y": 0, "z": 2}]}]
     assert debut["neededKeys"] == [{"keys": [ref("key-dorm", "Dorm room 314 marked key", "314", None)],
                                     "map": {"id": "customs", "name": "Customs", "normalizedName": "customs"}}]
     assert debut["failConditions"] == [{"id": "fail-1", "type": "taskStatus", "description": "Shortage must not fail",

@@ -1,8 +1,7 @@
 // Game log reader and TarkovTracker: settings cards, event list, notifications.
 
 import { api, badge, button, ext, fmt, h, icon, mount, segmented, toast, toggle } from "./lib.js";
-import { isInRaid, onMap } from "./questinfo.js";
-import { emit, peek, store } from "./store.js";
+import { emit, store } from "./store.js";
 
 const MODE = { regular: "PvP", pve: "PvE", seasonal: "Seasonal" };
 
@@ -47,22 +46,18 @@ function importText(s) {
   return parts.join(" · ");
 }
 
-// Any unfinished pinned quest with something to do on this map?
-function pinnedOn(mapId) {
-  const tasks = peek("tasks");
-  if (!tasks || !mapId) return false;
-  const pinned = new Set(store.progress?.pinned || []);
-  const done = new Set(store.progress?.tasks || []);
-  return tasks.some((t) => pinned.has(t.id) && !done.has(t.id) && (t.objectives || []).some((o) => isInRaid(o) && onMap(o, mapId)));
-}
-
 // Called for every "gamelog" event from the app.
 export function onGameEvent(e) {
   store.gameEvents = [e, ...(store.gameEvents || [])].slice(0, 40);
   emit("gamelog", e);
   const d = describeEvent(e);
   if (e.kind === "quest" && e.status === "started") return;  // too chatty
-  if (e.kind === "raid_end") return;
+  // The raid you're in also comes with the app's state; set it now so the map
+  // shows the raid plan's quest markers straight away.
+  if (e.kind === "raid_end") {
+    if (store.state?.raid) { store.state = { ...store.state, raid: null }; emit("state"); }
+    return;
+  }
   if (e.kind === "mode") {
     if ((e.gameMode === "regular" || e.gameMode === "pve") && e.gameMode !== store.state.gameMode) {
       toast(`Tarkov is in ${MODE[e.gameMode]} mode, but the app is showing ${MODE[store.state.gameMode] || "another mode"}.`, {
@@ -73,10 +68,14 @@ export function onGameEvent(e) {
     return;
   }
   if (e.kind === "raid") {
-    // With quests pinned for this map, its raid plan is more useful than the map page.
-    const target = e.normalizedName && pinnedOn(e.mapId) ? `#/raid/${e.normalizedName}` : e.normalizedName ? `#/maps/${e.normalizedName}` : null;
+    // The map, with markers for the quests in your raid plan (maps.js).
+    if (e.normalizedName) {
+      store.state = { ...(store.state || {}), raid: Object.fromEntries(["map", "name", "normalizedName", "mapId", "raidId", "time"].map((k) => [k, e[k] ?? null])) };
+      emit("state");
+    }
+    const target = e.normalizedName ? `#/maps/${e.normalizedName}` : null;
     if (e.autoMap && target) location.hash = target;
-    toast(d.text, target && !e.autoMap ? { action: () => { location.hash = target; }, actionLabel: target.startsWith("#/raid") ? "Raid plan" : "Map" } : {});
+    toast(d.text, target && !e.autoMap ? { action: () => { location.hash = target; }, actionLabel: "Map" } : {});
     return;
   }
   toast(d.sub ? `${d.text} (${d.sub})` : d.text, { kind: d.kind || "" });
@@ -109,7 +108,7 @@ export function logsCard() {
       ? badge("Off", "muted")
       : st.folder ? badge(st.running ? "Reading" : "Found", "good") : badge("Logs folder not found", "bad");
     mount(box,
-      row("Read Tarkov's log files", "Marks quests done as you finish them, opens your raid plan or the map when a raid loads, and shows flea sales.",
+      row("Read Tarkov's log files", "Marks quests done as you finish them, opens the map with your raid plan's quest markers when a raid loads, and shows flea sales.",
         toggle("", st.enabled, async (v) => { await api("gamelog", { method: "POST", body: { enabled: v } }); draw(); })),
       st.enabled ? h("div.note" + (st.folder ? "" : ".warn"), { style: { margin: "4px 0 6px" } }, icon(st.folder ? "info" : "alert", 16),
         h("div", status, " ",
@@ -122,7 +121,7 @@ export function logsCard() {
             try { await api("gamelog", { method: "POST", body: { path: pathInput.value } }); toast("Logs folder saved.", { kind: "good" }); draw(); }
             catch (e) { toast(e.message, { kind: "bad" }); }
           }, { kind: "small" }))),
-      row("Show the raid plan or map when you load into a raid", "Opens your raid plan for that map if quests you pinned are on it, otherwise the map.",
+      row("Show the map when you load into a raid", "Opens that map (in a popped-out map window too) with markers for the quests in your raid plan only.",
         toggle("", st.autoMap, (v) => api("gamelog", { method: "POST", body: { autoMap: v } }))),
       row("Refresh prices when you leave a raid", "Gets the latest flea and trader prices from tarkov.dev as soon as a raid ends, so what you brought out shows current prices.",
         toggle("", st.refreshAfterRaid, (v) => api("gamelog", { method: "POST", body: { refreshAfterRaid: v } }))),

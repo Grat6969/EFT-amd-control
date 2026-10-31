@@ -84,6 +84,21 @@ def test_stale_data_refreshes_in_background(tmp_path):
     assert len(client.queries) == 2
 
 
+def test_data_cached_by_an_older_version_is_fetched_again(tmp_path):
+    client = FakeClient()
+    store = DataStore(tmp_path, "regular", client)
+    store.refresh("tasks")
+    assert json.loads((tmp_path / "data_regular_tasks.json").read_text())["version"] == DATASETS["tasks"].version
+    assert not DataStore(tmp_path, "regular", FakeClient(fail=True)).is_stale("tasks")
+    # A file from before versions (or an older one): shown, but stale.
+    path = tmp_path / "data_regular_tasks.json"
+    doc = json.loads(path.read_text())
+    doc.pop("version")
+    path.write_text(json.dumps(doc))
+    old = DataStore(tmp_path, "regular", FakeClient(fail=True))
+    assert old.snapshot("tasks")["data"] == [{"id": "x", "query": "tasks"}] and old.is_stale("tasks")
+
+
 def test_cache_files_per_game_mode(tmp_path):
     pve = DataStore(tmp_path, "pve", FakeClient())
     pve.refresh("tasks")

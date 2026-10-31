@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import asdict
 from typing import List, Optional
 
-from . import APP_NAME, __version__, staticapi
+from . import APP_NAME, __version__, questmap, staticapi
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
@@ -21,7 +21,7 @@ from .prices import PriceDB, rub
 from .pricewatch import FETCHES_NOW, FETCHES_PER_CHECK, PriceWatch
 from .profiles import BUILTIN_PROFILES, Profile, load_config
 from .progress import Progress
-from .server import Server, find_running
+from .server import Raw, Server, find_running
 from .updater import DEFAULT_BRANCH, Updater
 from .window import open_window
 
@@ -56,6 +56,7 @@ class WebApp:
         self.store = self._make_store(cfg.game_mode)
         self.progress = Progress(self.cfg_dir / f"progress_{cfg.game_mode}.json")
         self.markers = Markers(self.cfg_dir / "markers.json")
+        self.drawings = questmap.Drawings(self.cfg_dir, lambda url: self.store.client.get_bytes(url))
         self.updater = Updater(cfg.update_branch or DEFAULT_BRANCH)
         self.stop_event = threading.Event()
         self.scans: deque = deque(maxlen=25)
@@ -152,6 +153,7 @@ class WebApp:
                 "status": app.hover.status if app.hover else ("unavailable on this PC" if cfg.scan.hover else "off"),
             },
             "gameMode": cfg.game_mode,
+            "raid": self.link.raid_state() if hasattr(self, "link") else None,
             "update": {"available": bool(last.get("available")), "latest": last.get("latest")},
             "updating": dict(self.update_status),
         }
@@ -199,6 +201,22 @@ class WebApp:
         if name not in DATASETS:
             raise KeyError(f"unknown dataset {name}")
         return self.store.get(name, wait)
+
+    def quest_map(self, name: str) -> dict:
+        """Quest markers for one map, placed on tarkov.dev's drawing of it."""
+        data = {n: self.store.get(n, 30)["data"] for n in ("maps", "tasks", "mapimages")}
+        return questmap.build(data["maps"], data["tasks"], data["mapimages"], name, self.drawings)
+
+    def map_drawing(self, key: str) -> Raw:
+        entry = questmap.find_drawing(self.store.get("mapimages", 30)["data"], key)
+        if not entry:
+            raise KeyError(f"no map drawing called {key}")
+        svg, _view = self.drawings.get(entry["svg"], entry.get("svgLayer"))
+        return Raw(svg, "image/svg+xml", {
+            "Cache-Control": "private, max-age=3600",
+            # Opened on its own (not as an image), nothing in it may run.
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+        })
 
     def refresh_dataset(self, name: str) -> dict:
         if name == "prices":

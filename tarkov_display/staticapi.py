@@ -19,6 +19,7 @@ them.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 import time
@@ -300,6 +301,32 @@ def _id(value):
     return value.get("id") if isinstance(value, dict) else value
 
 
+def _position(p) -> Optional[dict]:
+    """{x, y, z} in the game (metres; y is height), rounded to the centimetre."""
+    if not isinstance(p, dict):
+        return None
+    out = {}
+    for k in ("x", "y", "z"):
+        v = p.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+            out[k] = round(float(v), 2)
+    return out if "x" in out and "z" in out else None
+
+
+def _zone(z: dict) -> dict:
+    out = {"id": z.get("id"), "map": {"id": _id(z.get("map"))} if z.get("map") else None}
+    position = _position(z.get("position"))
+    if position:
+        out["position"] = position
+        outline = [p for p in map(_position, z.get("outline") or []) if p]
+        if outline:
+            out["outline"] = outline
+        for k in ("top", "bottom"):
+            if isinstance(z.get(k), (int, float)) and not isinstance(z.get(k), bool) and math.isfinite(z[k]):
+                out[k] = round(float(z[k]), 2)
+    return out
+
+
 # Objective fields that are plain values in both the files and GraphQL.
 OBJECTIVE_VALUES = ("count", "foundInRaid", "targetNames", "exitName", "exitStatus", "playerLevel", "shotType",
                     "bodyParts", "timeFromHour", "timeUntilHour", "distance", "playerHealthEffect",
@@ -334,10 +361,11 @@ def _objective(o: dict, src: Source) -> dict:
         out["task"] = src.task(_id(o["task"]))
     if o.get("station") or o.get("hideoutStation"):
         out["hideoutStation"] = src.station(_id(o.get("station") or o.get("hideoutStation")))
-    # Where: zones (with names, which the files keep on the zones) and quest item spots.
+    # Where: zones (with names, which the files keep on the zones) and quest item spots,
+    # with their positions in the game (for quest markers on the maps).
     zones = [z for z in o.get("zones") or [] if isinstance(z, dict)]
     if zones:
-        out["zones"] = [{"id": z.get("id"), "map": {"id": _id(z.get("map"))} if z.get("map") else None} for z in zones]
+        out["zones"] = [_zone(z) for z in zones]
     names = list(o.get("zoneNames") or [])
     for z in zones:
         if z.get("name") and z["name"] not in names:
@@ -345,8 +373,9 @@ def _objective(o: dict, src: Source) -> dict:
     if names:
         out["zoneNames"] = names
     if o.get("possibleLocations"):
-        out["possibleLocations"] = [{"map": {"id": _id(loc.get("map"))}} for loc in o["possibleLocations"]
-                                    if isinstance(loc, dict) and loc.get("map")]
+        out["possibleLocations"] = [{"map": {"id": _id(loc.get("map"))},
+                                     "positions": [p for p in map(_position, loc.get("positions") or []) if p]}
+                                    for loc in o["possibleLocations"] if isinstance(loc, dict) and loc.get("map")]
     # How: weapon, gear and build requirements.
     if o.get("usingWeapon"):
         out["usingWeapon"] = [src.item(_id(w)) for w in o["usingWeapon"] if w]

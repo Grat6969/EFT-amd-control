@@ -24,7 +24,7 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from tarkov_display import datasets, pricewatch, staticapi
+from tarkov_display import datasets, pricewatch, questmap, staticapi
 from tarkov_display.client import TarkovClient
 from tarkov_display.prices import PriceDB
 
@@ -59,7 +59,18 @@ class Report:
 def record_downloads(save: Optional[Path]) -> dict:
     """Wrap every download: time it and, with --save, keep the file."""
     real = TarkovClient.get_json
+    real_bytes = TarkovClient.get_bytes
     timings: dict = {}
+
+    def get_bytes(self, url):
+        raw = real_bytes(self, url)
+        if save is not None:  # map drawings, as they are
+            path = save / url.split("://", 1)[-1]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+        return raw
+
+    TarkovClient.get_bytes = get_bytes
 
     def get_json(self, url):
         start = time.time()
@@ -186,6 +197,7 @@ def check_mode(rep: Report, mode: str, args) -> None:
             rep.warn("map without normalizedName (hidden in the app)", m.get("name"))
     types = check_tasks(rep, mode, out.get("tasks") or [], map_ids)
     print("  objective types:", dict(types.most_common()))
+    check_quest_maps(rep, mode, out, args.map_images, dump=args.dump_quest_maps and mode == "regular")
 
     for station in out.get("hideout") or []:
         for level in station.get("levels") or []:
@@ -258,6 +270,122 @@ def check_mode(rep: Report, mode: str, args) -> None:
             print(f"  GraphQL tasks            failed (not counted): {str(exc)[:200]}")
 
 
+def check_labels(rep: Report) -> None:
+    """tarkov.dev's own place labels (maps.json) land on the drawings."""
+    groups = TarkovClient().get_json(datasets.TARKOV_DEV_DATA + "maps.json")
+    drawings = questmap.Drawings(None, TarkovClient().get_bytes)
+    for g in groups:
+        for variant in g.get("maps") or []:
+            entry = questmap.quest_entry(variant) if variant.get("projection") == "interactive" else None
+            if not entry or not entry.get("svg") or not variant.get("labels"):
+                continue
+            try:
+                _svg, view = drawings.get(entry["svg"], entry.get("svgLayer"))
+            except Exception as exc:
+                rep.warn("tarkov.dev map drawing failed", f"{entry['key']}: {exc}")
+                continue
+            pic = questmap.svg_picture(entry, *view)
+            off = [lab.get("text") for lab in variant["labels"]
+                   if not all(-0.02 <= v <= 1.02 for v in pic.fraction(entry, lab["position"][0], lab["position"][1]))]
+            minx, miny, maxx, maxy = questmap.box(entry, entry.get("svgBounds") or entry["bounds"])
+            shape = (view[0] / view[1]) / ((maxx - minx) / (maxy - miny))
+            print(f"  drawing {entry['key']:20} {view[0]:.0f}x{view[1]:.0f}, shape vs bounds {shape:.3f}, "
+                  f"{len(variant['labels']) - len(off)}/{len(variant['labels'])} labels on it")
+            if off:
+                rep.warn("tarkov.dev place labels off their map drawing", f"{entry['key']}: {off[:5]}")
+            if not 0.9 < shape < 1.1:
+                rep.warn("map drawing a different shape from its bounds", f"{entry['key']}: {shape:.3f}")
+
+
+def _inside(point, polygon) -> bool:
+    x, y = point
+    inside = False
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (y1 > y) != (y2 > y) and x < (x2 - x1) * (y - y1) / (y2 - y1) + x1:
+            inside = not inside
+    return inside
+
+
+def check_quest_maps(rep: Report, mode: str, out: dict, images: Optional[dict], dump: bool) -> None:
+    """Quest markers on tarkov.dev's map drawings, placed by the app's own code:
+    every map with quest positions gets a picture, markers land on it, a
+    zone's marker is inside its own outline, and tarkov.dev's place labels
+    land on the picture too. With ``dump``, prints the markers (compressed)
+    so they can be drawn on the real drawings and looked at elsewhere."""
+    if not images:
+        rep.error(f"[{mode}] quest maps: no map images")
+        return
+    drawings = questmap.Drawings(None, TarkovClient().get_bytes)
+    maps = [m for m in out.get("maps") or [] if m.get("normalizedName")]
+    tasks = out.get("tasks") or []
+    dumped = []
+    totals = collections.Counter()
+    for m in sorted(maps, key=lambda m: m["normalizedName"]):
+        norm = m["normalizedName"]
+        positions = sum(1 for t in tasks for o in t.get("objectives") or []
+                        for p in [z.get("position") for z in o.get("zones") or [] if (z.get("map") or {}).get("id") == m.get("id")]
+                        + [p for loc in o.get("possibleLocations") or [] if (loc.get("map") or {}).get("id") == m.get("id")
+                           for p in loc.get("positions") or []] if p)
+        try:
+            result = questmap.build(maps, tasks, images, norm, drawings)
+        except Exception:
+            rep.error(f"[{mode}] quest map for {norm} crashed:\n{traceback.format_exc()}")
+            continue
+        pic = result["picture"]
+        markers = [mk for q in result["quests"] for mk in q["markers"]]
+        off_picture = [mk for mk in markers if not (-0.01 <= mk["x"] <= 1.01 and -0.01 <= mk["y"] <= 1.01)]
+        outside_own_outline = [mk for mk in markers if mk.get("outline") and not _inside((mk["x"], mk["y"]), mk["outline"])]
+        floors = collections.Counter(mk["floor"] for mk in markers if mk.get("floor"))
+        totals.update(positions=positions, markers=len(markers), outside=result["outside"], quests=len(result["quests"]))
+        kind = pic["kind"] if pic else "-"
+        extra = f" tiles z{pic['tiles']['zoom']} {pic['tiles']['columns']}x{pic['tiles']['rows']}" if pic and pic["kind"] == "tiles" else ""
+        print(f"  quest map {norm:22} {kind:5}{extra:14} {len(result['quests']):3} quests {len(markers):4} spots "
+              f"({positions} positions, {result['outside']} off tarkov.dev's map) floors {dict(floors.most_common(4))}")
+        if positions and not pic:
+            rep.warn("quest positions on a map the app can't draw them on", f"{norm}: {result.get('error') or 'no interactive map'}")
+        if result.get("error"):
+            rep.warn("tarkov.dev map drawing failed (tiles used instead)", f"{norm}: {result['error']}")
+        if off_picture:
+            rep.warn("quest markers off the map picture", f"{norm}: {len(off_picture)}, e.g. {off_picture[0]['text'][:60]}")
+        if outside_own_outline:
+            rep.warn("zone markers outside their own outline", f"{norm}: {len(outside_own_outline)}, e.g. {outside_own_outline[0]['text'][:60]}")
+        if positions and result["outside"] > positions / 2:
+            rep.error(f"[{mode}] {norm}: {result['outside']} of {positions} quest positions are off the map: the map's bounds look wrong")
+        entry = questmap.entry_for(images, norm)
+        if pic and entry and dump:
+            dumped.append({"map": norm, "picture": {k: pic.get(k) for k in ("key", "kind", "width", "height")},
+                           "tiles": pic.get("tiles"),
+                           "quests": [{"name": q["name"], "markers": [[mk["x"], mk["y"], mk["kind"], mk.get("floor"), mk["text"][:70],
+                                                                       mk.get("outline")] for mk in q["markers"]]}
+                                      for q in result["quests"]]})
+    print(f"  quest maps               ok  {totals['quests']} quest/map pairs, {totals['markers']} spots from "
+          f"{totals['positions']} positions, {totals['outside']} off tarkov.dev's maps")
+    if not totals["markers"]:
+        rep.error(f"[{mode}] no quest markers on any map")
+    # Tiles: the ones the app would show exist.
+    for g in images.values():
+        entry = (g or {}).get("quest") or {}
+        if entry.get("tiles") and not entry.get("svg"):
+            layout = questmap.tile_layout(entry)
+            corners = [(layout["x0"] + c, layout["y0"] + r) for c, r in ((0, 0), (layout["columns"] - 1, layout["rows"] - 1),
+                                                                           (layout["columns"] // 2, layout["rows"] // 2))]
+            ok = 0
+            for x, y in corners:
+                url = layout["url"].replace("{z}", str(layout["zoom"])).replace("{x}", str(x)).replace("{y}", str(y))
+                try:
+                    ok += len(TarkovClient().get_bytes(url)) > 100
+                except Exception as exc:
+                    rep.warn("map tile missing", f"{url}: {exc}")
+            print(f"  tiles {entry['key']:20} z{layout['zoom']} {layout['columns']}x{layout['rows']}: {ok}/{len(corners)} sample tiles there")
+    if dump and dumped:
+        import base64
+        import gzip
+        blob = base64.b64encode(gzip.compress(json.dumps(dumped, separators=(",", ":")).encode(), 9)).decode()
+        print(f"  QMDUMP {len(blob)} chars")
+        for i in range(0, len(blob), 3000):
+            print("QMDUMP " + blob[i:i + 3000])
+
+
 def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> None:
     """Price histories (the item chart and the price watch) and one price
     watch check, as the app does it after a price update. With --save, the
@@ -319,7 +447,9 @@ def main(argv=None) -> int:
     parser.add_argument("--save", type=Path, help="keep downloaded files here")
     parser.add_argument("--graphql", action="store_true", help="also try the GraphQL API (not counted)")
     parser.add_argument("--items", type=int, default=40, help="random item panels to build per mode")
+    parser.add_argument("--dump-quest-maps", action="store_true", help="print PvP quest markers, compressed, to draw elsewhere")
     args = parser.parse_args(argv)
+    args.map_images = None
     record_downloads(args.save)
     rep = Report()
     try:
@@ -332,6 +462,13 @@ def main(argv=None) -> int:
         try:
             result = fetch(TarkovClient())
             print(f"{label} ok: {len(result)}")
+            if label == "map images":
+                args.map_images = result
+                interactive = sorted(k for k, g in result.items() if g.get("quest"))
+                print(f"  interactive maps: {interactive}")
+                if len(interactive) < 8:
+                    rep.error(f"only {len(interactive)} maps have tarkov.dev's interactive map data")
+                check_labels(rep)
         except Exception:
             rep.error(f"{label} crashed:\n{traceback.format_exc()}")
     for mode in ("regular", "pve"):

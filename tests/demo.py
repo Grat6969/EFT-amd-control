@@ -277,8 +277,23 @@ def shoot(desc, count, map_=None, targets=("Scav",), **extra):
             "bodyParts": [], "zoneNames": [], "requiredKeys": [], **extra}
 
 
+# Where the demo quests' zones are in the game: x, y (height), z; and how far
+# their outline reaches.
+ZONE_SPOTS = {"Tarcone office": (290, 1.0, -40, 6), "Dorms 206": (200, 4.5, 155, 4), "Dorms": (205, 1.0, 150, 14),
+              "Factory office": (21, 4.0, 39, 5), "Lab server room": (-150, 1.0, -340, 6)}
+
+
 def zone(name, map_):
-    return {"id": "zone-" + name.lower().replace(" ", "-"), "map": {"id": MAPS_MIN[map_]["id"]}}
+    out = {"id": "zone-" + name.lower().replace(" ", "-"), "map": {"id": MAPS_MIN[map_]["id"]}}
+    if name in ZONE_SPOTS:
+        x, y, z, r = ZONE_SPOTS[name]
+        out["position"] = {"x": x, "y": y, "z": z}
+        out["outline"] = [{"x": x + dx, "y": y, "z": z + dz} for dx, dz in ((-r, -r), (r, -r), (r, r), (-r, r))]
+    return out
+
+
+def spots(map_, *positions):
+    return {"map": {"id": MAPS_MIN[map_]["id"]}, "positions": [{"x": x, "y": y, "z": z} for x, y, z in positions]}
 
 
 def qitem(name, short, hue):
@@ -292,7 +307,8 @@ WATCH = qitem("Bronze pocket watch", "Watch", 80)
 quest(0, "Debut", "Prapor", 1, objectives=[shoot("Eliminate 5 Scavs all over the Tarkov territory", 5), give("Tushonka", 2, False)], map_=None)
 quest(1, "Checking", "Prapor", 2, [0], objectives=[
     {**basic("Locate and obtain the bronze pocket watch on Customs", "customs", "findQuestItem"), "questItem": WATCH, "count": 1,
-     "possibleLocations": [{"map": {"id": MAPS_MIN["customs"]["id"]}}]},
+     # The last spot is off the map: tarkov.dev's map leaves those out.
+     "possibleLocations": [spots("customs", (120, 0.5, -100), (-200, 1.0, -110), (900, 0, 0))]},
     {**basic("Hand over the pocket watch", None, "giveQuestItem"), "questItem": WATCH, "count": 1}], map_="customs")
 quest(2, "Shootout Picnic", "Prapor", 4, [0], objectives=[shoot("Eliminate 15 Scavs on Woods", 15, "woods")], map_="woods")
 quest(3, "Delivery from the Past", "Prapor", 6, [1], objectives=[
@@ -315,7 +331,7 @@ quest(12, "Signal - Part 1", "Mechanic", 8, [11], objectives=[give("GPU", 1), gi
 quest(13, "Farming - Part 1", "Mechanic", 12, [11], objectives=[give("Wires", 5), give("Bolts", 4)], map_="factory")
 quest(14, "Bad Rep Evidence", "Skier", 5, objectives=[
     {**basic("Obtain the secure folder 0031 on Customs", "customs", "findQuestItem", keys=["314"]), "questItem": FOLDER, "count": 1,
-     "possibleLocations": [{"map": {"id": MAPS_MIN["customs"]["id"]}}]},
+     "possibleLocations": [spots("customs", (330, 1.0, -170))]},
     {**basic("Hand over the folder", None, "giveQuestItem"), "questItem": FOLDER, "count": 1}], map_="customs")
 quest(15, "Supplier", "Skier", 4, objectives=[give("PACA", 1, False), give("AK-74N", 1, False)])
 quest(16, "Chumming", "Skier", 7, [14], objectives=[{"id": oid(9902), "type": "mark", "optional": False, "maps": [MAPS_MIN["customs"]],
@@ -336,6 +352,8 @@ quest(23, "The Huntsman Path - Secured Perimeter", "Jaeger", 14, objectives=[
           zones=[zone("Factory office", "factory")])], map_="factory")
 quest(24, "Long Road", "Ref", 25, [13], faction="USEC", objectives=[give("Rooster", 1)])
 quest(25, "Network Provider - Part 1", "Ref", 30, [12], lk=True, objectives=[give("WiFi Cam", 3), give("Intelligence", 2)])
+quest(26, "Lab Rat", "Mechanic", 20, [12], kappa=False, objectives=[
+    {**basic("Locate the server room in The Lab", "the-lab"), "zones": [zone("Lab server room", "the-lab")]}], map_="the-lab")
 
 STATIONS = []
 
@@ -434,7 +452,51 @@ GOONS = [{"timestamp": str(int((time.time() - m * 60) * 1000)), "map": MAPS_MIN[
          [(14, "lighthouse"), (95, "shoreline"), (260, "woods"), (400, "customs"), (900, "lighthouse")]]
 FLEA = {"minPlayerLevel": 15, "enabled": True, "sellOfferFeeRate": 0.03, "sellRequirementFeeRate": 0.03,
         "foundInRaidRequired": True, "reputationLevels": []}
-MAP_IMAGES = [{"normalizedName": norm, "maps": [{"key": norm, "projection": "interactive"},
+# How tarkov.dev's interactive maps place game positions (their real numbers
+# from maps.json) for a few maps; the drawings are stand-ins (demo_drawing).
+GEOMETRY = {
+    "customs": {"transform": [0.239, 168.65, 0.239, 136.35], "coordinateRotation": 180, "bounds": [[698, -307], [-372, 237]],
+                "svgPath": "https://assets.tarkov.dev/maps/svg/Customs.svg", "svgLayer": "Ground_Level", "author": "Shebuka",
+                "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+                "layers": [{"name": "2nd Floor", "svgLayer": "Second_Floor",
+                            "extents": [{"height": [2.7, 6.5], "bounds": [[[243, 190], [165, 125], "dorms"]]}]}]},
+    "factory": {"transform": [1.629, 119.9, 1.629, 139.3], "coordinateRotation": 90, "bounds": [[77, -64.5], [-65.5, 67.4]],
+                "svgPath": "https://assets.tarkov.dev/maps/svg/Factory.svg", "svgLayer": "Ground_Floor", "author": "Shebuka",
+                "layers": [{"name": "2nd Floor", "svgLayer": "Second_Floor", "extents": [{"height": [3, 6]}]}]},
+    "the-lab": {"transform": [0.575, 281.2, 0.575, 193.7], "coordinateRotation": 270, "bounds": [[-80, -477], [-287, -193]],
+                "tilePath": "https://assets.tarkov.dev/maps/labs_v4/1st/{z}/{x}/{y}.png", "tileSize": 175, "minZoom": 2, "maxZoom": 6,
+                "author": "Tarkov.dev"},
+}
+DRAWING_SIZES = {"Customs.svg": (1062.4827, 535.17401, "customs", "Ground_Level"), "Factory.svg": (130.81831, 141.23242, "factory", "Ground_Floor")}
+
+
+def demo_drawing(name: str) -> bytes:
+    """A stand-in for tarkov.dev's drawing of a map: land, a building at each
+    demo quest spot (so markers can be seen to land on them), an upper floor
+    the app must hide, and a script it must strip."""
+    from tarkov_display import questmap
+
+    width, height, norm, layer = DRAWING_SIZES[name]
+    entry = questmap.quest_entry({"key": norm, **GEOMETRY[norm]})
+    picture = questmap.svg_picture(entry, width, height)
+    places = [(x, z, r) for x, _y, z, r in ZONE_SPOTS.values()] + [(120, -100, 4), (-200, -110, 4), (330, -170, 5)]
+    rects = []
+    for x, z, r in places:
+        if not questmap.in_bounds(entry, x, z):
+            continue
+        (fx0, fy0), (fx1, fy1) = picture.fraction(entry, x - r, z - r), picture.fraction(entry, x + r, z + r)
+        x0, x1 = sorted((fx0 * width, fx1 * width))
+        y0, y1 = sorted((fy0 * height, fy1 * height))
+        rects.append(f'<rect class="building" x="{x0:.2f}" y="{y0:.2f}" width="{x1 - x0:.2f}" height="{y1 - y0:.2f}"/>')
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">'
+            '<style>.land{fill:#1f5054}.building{fill:#c6c2c2}.road{fill:none;stroke:#888;stroke-width:3}</style>'
+            f'<g id="{layer}"><rect class="land" width="{width}" height="{height}"/>'
+            f'<path class="road" d="M0 {height / 2:.1f}H{width:.1f}M{width / 2:.1f} 0V{height:.1f}"/>{"".join(rects)}</g>'
+            f'<g id="Second_Floor"><rect fill="red" width="{width}" height="{height}"/></g>'
+            '<script>parent.alert("not stripped")</script></svg>').encode()
+
+
+MAP_IMAGES = [{"normalizedName": norm, "maps": [{"key": norm, "projection": "interactive", **GEOMETRY.get(norm, {})},
                                                 {"key": f"{norm}-2d", "projection": "2D", "author": "Demo artist", "authorLink": "https://example.com"}]}
               for _, norm, _, _ in MAP_NAMES]
 WIPES = [{"name": "0.16.8.0", "start": "2025-07-09T07:00:00.000Z"}, {"name": "1.0.0.0", "start": "2025-11-15T09:00:00.000Z"}]
@@ -520,6 +582,13 @@ class DemoClient:
         prices = re.search(r"json\.tarkov\.dev/(?:regular|pve)/prices/(\w+)$", url)
         if prices:
             return {"data": price_history(prices.group(1))}
+        raise RuntimeError(f"demo has no {url}")
+
+    def get_bytes(self, url):
+        time.sleep(self.delay)
+        name = url.rsplit("/", 1)[-1]
+        if url.startswith("https://assets.tarkov.dev/maps/svg/") and name in DRAWING_SIZES:
+            return demo_drawing(name)
         raise RuntimeError(f"demo has no {url}")
 
 

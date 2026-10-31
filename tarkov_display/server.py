@@ -39,6 +39,13 @@ CONTENT_TYPES = {
 }
 
 
+class Raw:
+    """A route's answer that isn't JSON (a map drawing)."""
+
+    def __init__(self, body: bytes, ctype: str, headers: Optional[dict] = None) -> None:
+        self.body, self.ctype, self.headers = body, ctype, headers or {}
+
+
 class HttpError(Exception):
     def __init__(self, status: int, message: str) -> None:
         super().__init__(message)
@@ -167,6 +174,15 @@ class Server:
         @r("GET", "/api/markers")
         def markers(req, m, q, body):
             return ctx.markers_snapshot()
+
+        @r("GET", "/api/questmap/([a-z0-9-]{1,64})")
+        def questmap(req, m, q, body):
+            return ctx.quest_map(m.group(1))
+
+        # An <img> can't send headers, so the token comes in the address.
+        @r("GET", "/api/mapsvg/([A-Za-z0-9_-]{1,64})")
+        def mapsvg(req, m, q, body):
+            return ctx.map_drawing(m.group(1))
 
         @r("POST", "/api/markers")
         def markers_change(req, m, q, body):
@@ -349,6 +365,8 @@ class Server:
                             result = fn(self, m, query, body)
                         except (KeyError, ValueError) as exc:
                             raise HttpError(400, str(exc).strip("'\"")) from None
+                        if isinstance(result, Raw):
+                            return self._send(200, result.body, result.ctype, result.headers)
                         return self._json(200, result)
                 raise HttpError(404, "no such API")
 

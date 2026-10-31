@@ -49,10 +49,10 @@ class TarkovClient:
         self.game_mode = game_mode
         self.timeout = timeout
 
-    def send(self, req: urllib.request.Request) -> bytes:
+    def send(self, req: urllib.request.Request, accept: str = "application/json") -> bytes:
         from . import __version__
 
-        req.add_header("Accept", "application/json")
+        req.add_header("Accept", accept)
         req.add_header("Accept-Encoding", "gzip")
         req.add_header("User-Agent", f"RaidReady/{__version__}")
         try:
@@ -68,6 +68,10 @@ class TarkovClient:
 
     def get_json(self, url: str):
         return json.loads(self.send(urllib.request.Request(url)))
+
+    def get_bytes(self, url: str) -> bytes:
+        """A file as it is (map drawings)."""
+        return self.send(urllib.request.Request(url), accept="image/svg+xml,*/*;q=0.8")
 
     def query(self, template: str, variables: Optional[dict] = None, **params) -> dict:
         """Run a GraphQL query. ``%(mode)s`` in the template becomes the

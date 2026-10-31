@@ -163,6 +163,12 @@ def web(tmp_path, monkeypatch):
     app.server.httpd.server_close()
 
 
+def demo_map(norm):
+    from tests import demo
+
+    return demo.MAPS_MIN[norm]
+
+
 def demo_task(name):
     from tests import demo
 
@@ -367,3 +373,27 @@ def test_leaving_a_raid_refreshes_prices(web, monkeypatch):
     assert web.app.config.logs.refresh_after_raid is False
     raid_over()
     assert refreshed == [True, True]
+
+
+# -- the raid you're in (quest markers for your raid plan) ---------------------------------------
+
+
+def test_raid_state_follows_the_logs(web, monkeypatch):
+    from tarkov_display import gamelogs, linking
+
+    monkeypatch.setattr(web, "refresh_after_raid", lambda: False)
+    assert web.state()["raid"] is None
+    web.link._on_event(gamelogs.Event("raid", "2026-10-25 20:00:00", {"map": "bigmap", "online": True, "raidId": "AB12CD"}), False)
+    raid = web.state()["raid"]
+    assert (raid["name"], raid["normalizedName"], raid["raidId"], raid["time"]) == ("Customs", "customs", "AB12CD", "2026-10-25 20:00:00")
+    assert raid["mapId"] == demo_map("customs")["id"]
+    # An old raid read from earlier logs changes nothing.
+    web.link._on_event(gamelogs.Event("raid_end", "2026-10-25 19:00:00", {"map": "bigmap"}), True)
+    assert web.state()["raid"]["raidId"] == "AB12CD"
+    web.link._on_event(gamelogs.Event("raid_end", "2026-10-25 20:40:00", {"map": "bigmap", "raidId": "AB12CD"}), False)
+    assert web.state()["raid"] is None
+    # No word that it ended (the game crashed): over after a while anyway.
+    web.link._on_event(gamelogs.Event("raid", "2026-10-25 21:00:00", {"map": "Woods", "raidId": "EF34"}), False)
+    assert web.state()["raid"]["normalizedName"] == "woods"
+    web.link.raid["since"] -= linking.RAID_MAX + 1
+    assert web.state()["raid"] is None

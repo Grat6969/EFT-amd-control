@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 GAME_MODES = ("regular", "pve")
 MODE_NAMES = {"regular": "PvP", "pve": "PvE", "seasonal": "seasonal"}
+RAID_MAX = 2 * 3600  # seconds after loading in that a raid counts as over even if the logs never said so
 
 
 def prerequisite_ids(task_id: str, tasks: Optional[List[dict]]) -> List[str]:
@@ -51,6 +52,7 @@ class GameLink:
         self.tracker_status: dict = {}
         self.lock = threading.Lock()  # held while progress is written and while the app switches mode
         self._stores: dict = {}  # tarkov.dev data for the mode the app isn't showing
+        self.raid: Optional[dict] = None  # the raid you're in, from the logs (see raid_state)
 
     @property
     def cfg(self):
@@ -190,6 +192,10 @@ class GameLink:
                     payload.update(name=m["name"], normalizedName=m["normalizedName"], mapId=m.get("id"))
                     break
             payload["autoMap"] = self.cfg.logs.auto_map
+            self.raid = ({k: payload.get(k) for k in ("map", "name", "normalizedName", "mapId", "raidId", "time")}
+                         if ev.kind == "raid" else None)
+            if self.raid is not None:
+                self.raid["since"] = time.time()
             if ev.kind == "raid_end" and self.cfg.logs.refresh_after_raid:
                 payload["refreshed"] = self.web.refresh_after_raid() or None
         elif ev.kind == "flea":
@@ -199,6 +205,15 @@ class GameLink:
             payload["name"] = item.name if item else None
         self.events.appendleft(payload)
         self.web.publish("gamelog", payload)
+
+    def raid_state(self) -> Optional[dict]:
+        """The raid you loaded into, until it ends. The logs don't always say
+        when a raid ends (the game can crash), so it also ends on its own after
+        a while; no raid lasts that long."""
+        raid = self.raid
+        if raid and time.time() - raid["since"] > RAID_MAX:
+            self.raid = raid = None
+        return dict(raid) if raid else None
 
     def scan(self) -> dict:
         folder = gamelogs.default_folder(self.cfg.logs.path)

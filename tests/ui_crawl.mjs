@@ -128,8 +128,36 @@ async function crawlMode(mode) {
   await visit("raid", 600);
   await api("progress", { op: "pin", ids: tasks.map((t) => t.id), pinned: false });
 
-  // Every map page.
-  for (const m of maps) await visit(`maps/${m.normalizedName}`, 500);
+  // Every map page: quest markers on tarkov.dev's drawing (the default
+  // picture), every filter, a quest picked from the list, and the pop-out.
+  const questMaps = {};
+  for (const m of maps) {
+    await visit(`maps/${m.normalizedName}`, 500);
+    await page.waitForFunction(() => document.querySelector(".quest-panel, .quest-hint, .content .empty, .content .error-box")
+      || (document.querySelector(".marker-list") && !document.querySelector(".viewer-msg .spinner")), null, { timeout: 30000 })
+      .catch(() => add("quest map", `${m.normalizedName}: no quest markers or message after 30 s`));
+    const shown = await page.evaluate(() => ({
+      pins: document.querySelectorAll(".quest-pin").length, rows: document.querySelectorAll(".quest-row").length,
+      picture: document.querySelector(".viewer .tile-mosaic") ? "tiles"
+        : document.querySelector(".viewer img[src*='/api/mapsvg/']") ? "drawing" : document.querySelector(".viewer img") ? "2D/3D image only" : "none",
+    }));
+    questMaps[m.normalizedName] = `${shown.rows} quests, ${shown.pins} spots (${shown.picture})`;
+    const filter = page.locator(".quest-filter select");
+    if (await filter.count()) {
+      for (const value of ["raid", "available", "all", "off", "open"]) {
+        await filter.selectOption(value);
+        await page.waitForTimeout(150);
+      }
+      await scan();
+      const row = page.locator(".quest-row .marker-note").first();
+      if (await row.count()) {
+        await row.click();
+        await page.waitForTimeout(300);
+        await scan(".quest-info");
+      }
+    }
+  }
+  console.log(`${mode} quest maps:`, JSON.stringify(questMaps, null, 1));
 
   // Hideout with every station built, then what's still needed.
   const stations = (await api("data/hideout?wait=30")).body.data || [];

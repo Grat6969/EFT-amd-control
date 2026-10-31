@@ -26,10 +26,17 @@ def install(root: Path) -> None:
             raise ApiError(f"not saved: {url}")
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def get_bytes(self, url):
+        path = root / url.split("://", 1)[-1]
+        if not path.is_file():
+            raise ApiError(f"not saved: {url}")
+        return path.read_bytes()
+
     def query(self, *args, **kwargs):
         raise ApiError("HTTP 422: GraphQL server unavailable. Try again later.")
 
     TarkovClient.get_json = get_json
+    TarkovClient.get_bytes = get_bytes
     TarkovClient.query = query
 
 

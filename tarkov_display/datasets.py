@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from . import staticapi
+from . import questmap, staticapi
 from .client import ApiError, TarkovClient, drop_nulls
 
 log = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ fragment ObjectiveParts on TaskObjective {
     count foundInRaid dogTagLevel minDurability maxDurability items { ITEM } requiredKeys { ITEM } zones { ZONE }
   }
   ... on TaskObjectiveQuestItem {
-    count questItem { ITEM } requiredKeys { ITEM } zones { ZONE } possibleLocations { map { id } }
+    count questItem { ITEM } requiredKeys { ITEM } zones { ZONE } possibleLocations { map { id } positions { x y z } }
   }
   ... on TaskObjectiveMark { markerItem { ITEM } requiredKeys { ITEM } zones { ZONE } }
   ... on TaskObjectiveBuildItem {
@@ -78,7 +78,8 @@ fragment ObjectiveParts on TaskObjective {
   ... on TaskObjectiveHideoutStation { hideoutStation { id name } stationLevel }
   ... on TaskObjectivePlayerLevel { playerLevel }
 }
-""".replace("ITEM", ITEM).replace("ZONE", "id map { id }").replace("HEALTH", "bodyParts effects time { compareMethod value }")
+""".replace("ITEM", ITEM).replace("ZONE", "id map { id } position { x y z } outline { x y z } top bottom").replace(
+    "HEALTH", "bodyParts effects time { compareMethod value }")
 
 HIDEOUT_QUERY = """
 query Hideout {
@@ -263,6 +264,9 @@ class Dataset:
     ttl: float
     fetch: Callable[[TarkovClient], object]
     per_mode: bool = True  # PvE and PvP data differ
+    # Raised when the app starts keeping more of a dataset: a copy cached by an
+    # older version is shown but downloaded again straight away.
+    version: int = 1
 
 
 def _q(query: str, key: str) -> Callable[[TarkovClient], object]:
@@ -286,13 +290,17 @@ def _files_or_query(from_files: Callable[[TarkovClient], object], query: str, ke
 
 
 def _map_images(client: TarkovClient):
-    """2D/3D map images per map, from tarkov.dev's maps.json."""
+    """2D/3D map images per map, from tarkov.dev's maps.json, and how their
+    interactive map places game positions (for quest markers; see questmap)."""
     groups = client.get_json(TARKOV_DEV_DATA + "maps.json")
     out = {}
     for group in groups:
         images = []
+        quest = None
         for variant in group.get("maps") or []:
             projection = variant.get("projection")
+            if projection == "interactive" and quest is None:
+                quest = questmap.quest_entry(variant)
             if projection not in ("2D", "3D"):
                 continue  # interactive maps are tiles, not one image
             images.append({
@@ -306,6 +314,7 @@ def _map_images(client: TarkovClient):
         out[group["normalizedName"]] = {
             "images": images,
             "interactive": INTERACTIVE_MAP_URL.format(name=group["normalizedName"]),
+            **({"quest": quest} if quest else {}),
         }
     return out
 
@@ -315,7 +324,7 @@ def _wipes(client: TarkovClient):
 
 
 DATASETS: Dict[str, Dataset] = {d.name: d for d in [
-    Dataset("tasks", 6 * HOUR, _files_or_query(staticapi.tasks, TASKS_QUERY, "tasks")),
+    Dataset("tasks", 6 * HOUR, _files_or_query(staticapi.tasks, TASKS_QUERY, "tasks"), version=2),  # 2: quest positions
     Dataset("hideout", 6 * HOUR, _files_or_query(staticapi.hideout, HIDEOUT_QUERY, "hideoutStations")),
     Dataset("barters", 6 * HOUR, _files_or_query(staticapi.barters, BARTERS_QUERY, "barters")),
     Dataset("crafts", 6 * HOUR, _files_or_query(staticapi.crafts, CRAFTS_QUERY, "crafts")),
@@ -329,7 +338,7 @@ DATASETS: Dict[str, Dataset] = {d.name: d for d in [
     Dataset("status", 5 * 60, _files_or_query(staticapi.status, STATUS_QUERY, "status"), per_mode=False),
     Dataset("goons", 5 * 60, _files_or_query(staticapi.goons, GOONS_QUERY, "goonReports")),
     Dataset("flea", 24 * HOUR, _files_or_query(staticapi.flea, FLEA_QUERY, "fleaMarket")),
-    Dataset("mapimages", 24 * HOUR, _map_images, per_mode=False),
+    Dataset("mapimages", 24 * HOUR, _map_images, per_mode=False, version=2),  # 2: interactive map geometry
     Dataset("wipes", 24 * HOUR, _wipes, per_mode=False),
 ]}
 
@@ -366,6 +375,8 @@ class DataStore:
                 with open(path, "r", encoding="utf-8") as fh:
                     cached = json.load(fh)
                 entry.update(data=drop_nulls(cached["data"]), updated=cached["updated"])
+                if cached.get("version", 1) != DATASETS[name].version:
+                    entry["updated"] = 0.0  # from an older app: get it again
             except (OSError, ValueError, KeyError) as exc:
                 log.warning("Ignoring cached %s: %s", name, exc)
         return entry
@@ -378,7 +389,7 @@ class DataStore:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
             with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump({"updated": entry["updated"], "data": entry["data"]}, fh)
+                json.dump({"updated": entry["updated"], "version": DATASETS[name].version, "data": entry["data"]}, fh)
             os.replace(tmp, path)
         except OSError as exc:
             log.debug("Could not cache %s: %s", name, exc)

@@ -239,3 +239,24 @@ def test_markers_api(webapp, monkeypatch):
     assert call(s, "/api/markers", "POST", {"op": "add", "image": "customs-2d", "x": "x", "y": 0})[0] == 400
     assert body(call(s, "/api/markers"))["customs-2d"][0]["note"] == "hi"
     assert body(call(s, "/api/bootstrap"))["markers"]["customs-2d"][0]["note"] == "hi"
+
+
+def test_quest_map_api(webapp):
+    s = webapp.server
+    data = body(call(s, "/api/questmap/customs"))
+    assert data["picture"]["kind"] == "svg" and data["picture"]["key"] == "customs"
+    names = [q["name"] for q in data["quests"]]
+    assert names == sorted(names, key=str.lower) and "Delivery from the Past" in names and "Checking" in names
+    assert data["outside"] == 1  # the demo puts one pocket-watch spot off the map
+    assert body(call(s, "/api/questmap/the-lab"))["picture"]["kind"] == "tiles"
+    assert body(call(s, "/api/questmap/woods"))["picture"] is None  # no interactive map in the demo
+    assert call(s, "/api/questmap/nowhere")[0] == 400
+    assert call(s, "/api/questmap/Bad_Name")[0] == 404
+
+    # The drawing, for an <img>: the token comes in the address.
+    assert call(s, "/api/mapsvg/customs", token=False)[0] == 403
+    status, svg, headers = call(s, f"/api/mapsvg/customs?token={s.token}", token=False)
+    assert status == 200 and headers["Content-Type"] == "image/svg+xml" and headers["X-Content-Type-Options"] == "nosniff"
+    assert "sandbox" in headers["Content-Security-Policy"] and "default-src 'none'" in headers["Content-Security-Policy"]
+    assert b"<script" not in svg and b"Second_Floor" not in svg and b"Ground_Level" in svg
+    assert call(s, "/api/mapsvg/woods")[0] == 400 and call(s, "/api/mapsvg/the-lab")[0] == 400  # no drawing for these

@@ -1,17 +1,88 @@
 import { itemChip } from "../components.js";
-import { badge, button, card, empty, errorBox, ext, fmt, h, icon, img, loading, local, mount, segmented, select, stat, table, toast } from "../lib.js";
-import { buyPrice, dataset, on, peek, setMarkers, store } from "../store.js";
+import { api, badge, button, card, empty, errorBox, ext, fmt, h, icon, img, loading, local, mount, segmented, select, stat, table, toast, TOKEN } from "../lib.js";
+import { objectiveDone } from "../questinfo.js";
+import { buyPrice, dataset, on, peek, questContext, questState, setMarkers, setProgress, store } from "../store.js";
 
 // Markers you add are drawn by every map viewer on screen, and redrawn when
-// they change here or in another window (a popped-out map).
+// they change here or in another window (a popped-out map). Quest markers are
+// redrawn when progress, the raid you're in, or the quest data change.
 const live = new Set();
+const questLive = new Set();
 const redrawAll = () => { for (const fn of [...live]) fn(); };
+const redrawQuests = (why) => { for (const fn of [...questLive]) fn(why); };
 const COLORS = ["yellow", "red", "green", "blue", "purple", "white"];
 const POPOUT_SIZE = "popup,width=980,height=820";
 
+// -- quest markers --------------------------------------------------------------------------
+// Placed by the app (questmap.py) on tarkov.dev's drawing of the map, the only
+// map picture that comes with the game's coordinates.
+
+const QUEST_FILTERS = [["raid", "Raid plan"], ["available", "Available now"], ["open", "Not done"], ["all", "All quests"], ["off", "Off"]];
+// Bright, well separated colours for the first quests on a map; then hues spread round the colour wheel.
+const QUEST_COLORS = ["#ff4d4d", "#4da6ff", "#ffd633", "#3ddc84", "#ff5cf0", "#ff9a3c", "#2ee6e6", "#a274ff",
+  "#c6f53b", "#ff9ec7", "#ffffff", "#d4a373", "#7dffcf", "#8fb8ff", "#ff6f91", "#b0bec5"];
+const questColor = (i) => i < QUEST_COLORS.length ? QUEST_COLORS[i]
+  : `hsl(${Math.round((i * 137.508) % 360)} 85% ${i % 2 ? 62 : 74}%)`;
+
+const questMaps = new Map();  // map normalizedName -> Promise of /api/questmap/<map>
+function loadQuestMap(norm) {
+  if (!questMaps.has(norm)) {
+    const p = api(`questmap/${encodeURIComponent(norm)}`);
+    p.catch(() => questMaps.delete(norm));
+    questMaps.set(norm, p);
+  }
+  return questMaps.get(norm);
+}
+
+// The raid you're in (from the game log reader), if it's on this map.
+const raidOn = (m) => { const r = store.state?.raid; return r && r.normalizedName === m.normalizedName ? r : null; };
+const raidKey = (m) => { const r = raidOn(m); return r ? [r.normalizedName, r.raidId, r.time].join("|") : null; };
+// Raids in which you picked another filter or picture yourself: the raid doesn't take them over again.
+const raidChoice = { filter: null, image: null };
+
+// In a raid, only your raid plan's quests (until you pick something else).
+function questFilter(m) {
+  const key = raidKey(m);
+  if (key && raidChoice.filter !== key) return "raid";
+  const f = local.get("map.quests", "open");
+  return QUEST_FILTERS.some(([v]) => v === f) ? f : "open";
+}
+
+function setQuestFilter(m, value) {
+  const key = raidKey(m);
+  if (key) raidChoice.filter = value === "raid" ? null : key;
+  if (!key || value !== "raid") local.set("map.quests", value);
+}
+
+// The quests to draw, each with its own colour, and only the spots of
+// objectives still to do.
+function visibleQuests(data, filter) {
+  if (!data?.quests?.length || filter === "off") return [];
+  const tasks = peek("tasks") || [];
+  const ctx = questContext(tasks);
+  const objectives = new Map();
+  for (const t of tasks) for (const o of t.objectives || []) if (o?.id) objectives.set(o.id, o);
+  const pinned = new Set(store.progress?.pinned || []);
+  const out = [];
+  for (const q of data.quests) {
+    const task = ctx.byId.get(q.id);
+    const state = task ? questState(task, ctx) : "available";
+    if (filter === "raid" && (!pinned.has(q.id) || state === "done")) continue;
+    if (filter === "available" && state !== "available") continue;
+    if (filter === "open" && (state === "done" || state === "other")) continue;
+    const markers = state === "done" ? q.markers
+      : q.markers.filter((mk) => mk.objectives.some((id) => !objectives.has(id) || !objectiveDone(objectives.get(id))));
+    if (markers.length) out.push({ ...q, markers, state, pinned: pinned.has(q.id) });
+  }
+  out.forEach((q, i) => { q.color = questColor(i); });
+  return out;
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 export default {
   title: "Maps",
-  subtitle: "Map images, bosses, extracts, keys and your own markers",
+  subtitle: "Map images, quest markers, bosses, extracts, keys and your own markers",
   async render(root, { rest, query = {}, popout = false }) {
     mount(root, loading("Loading maps from tarkov.dev…"));
     let maps;
@@ -23,10 +94,21 @@ export default {
     dataset("tasks").catch(() => {});
     maps = maps.filter((m) => m.normalizedName).sort((a, b) => a.name.localeCompare(b.name));
     const selected = maps.find((m) => m.normalizedName === rest[0]) || maps.find((m) => m.normalizedName === "customs") || maps[0];
-    const off = on((kind) => { if (kind === "markers") redrawAll(); });
-    const cleanup = () => { off(); live.clear(); };
+    let raid = JSON.stringify(store.state?.raid || null);
+    const off = on((kind, detail) => {
+      if (kind === "markers") redrawAll();
+      else if (kind === "progress") redrawQuests("progress");
+      else if (kind === "state") {
+        const now = JSON.stringify(store.state?.raid || null);
+        if (now !== raid) { raid = now; redrawQuests("raid"); }
+      } else if (kind === "data" && ["tasks", "maps", "mapimages"].includes(detail)) {
+        questMaps.clear();
+        redrawQuests("data");
+      }
+    });
+    const cleanup = () => { off(); live.clear(); questLive.clear(); };
     if (popout) {
-      await drawPopout(root, maps, selected, query.image);
+      await drawPopout(root, maps, selected, query);
       return cleanup;
     }
     const detail = h("div");
@@ -39,13 +121,13 @@ export default {
             m.raidDuration ? h("span", `${m.raidDuration} min`) : null),
           h("div.muted.small", (m.bosses || []).map((b) => b.boss?.name).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(", ") || "No bosses"))))),
       detail);
-    if (selected) await drawMap(detail, selected);
+    if (selected) await drawMap(detail, selected, query);
     return cleanup;
   },
 };
 
 // The popped-out window: a map picker and the map, filling the window.
-async function drawPopout(root, maps, m, imageKey) {
+async function drawPopout(root, maps, m, query) {
   if (!m) { mount(root, empty("No maps yet.")); return; }
   root.classList.add("popout-view");
   mount(root, loading());
@@ -53,10 +135,10 @@ async function drawPopout(root, maps, m, imageKey) {
   try { images = await dataset("mapimages"); } catch { images = null; }
   const picker = select(maps.map((x) => [x.normalizedName, x.name]), m.normalizedName,
     (v) => { location.hash = `#/maps/${v}`; }, { title: "Map" });
-  mount(root, mapImage(m, images, { popout: true, picker, imageKey }));
+  mount(root, mapImage(m, images, { popout: true, picker, imageKey: query.image, quest: query.quest }));
 }
 
-async function drawMap(root, m) {
+async function drawMap(root, m, query = {}) {
   const tabs = [["image", "Map"], ["bosses", "Bosses"], ["extracts", "Extracts"], ["keys", "Keys & locks"], ["more", "Transits & hazards"]];
   let tab = "image";
   const body = h("div");
@@ -67,7 +149,7 @@ async function drawMap(root, m) {
       mount(body, loading());
       let images = null;
       try { images = await dataset("mapimages"); } catch { images = null; }
-      mount(body, mapImage(m, images));
+      mount(body, mapImage(m, images, { quest: query.quest }));
     } else if (tab === "bosses") mount(body, bosses(m));
     else if (tab === "extracts") mount(body, extracts(m));
     else if (tab === "keys") mount(body, keys(m));
@@ -94,82 +176,222 @@ async function drawMap(root, m) {
 function imagesFor(m, all) {
   if (!all) return null;
   const n = m.normalizedName;
-  const key = all[n] ? n : Object.keys(all).find((k) => n.startsWith(k) || n.endsWith(k) || k.startsWith(n) || n.replace(/^night-/, "") === k || n.replace(/-21$/, "") === k);
+  if (all[n]) return all[n];
+  // Night Factory and Ground Zero 21+ are drawn on Factory's and Ground Zero's maps.
+  const alt = Object.values(all).find((g) => (g?.quest?.altMaps || []).includes(n));
+  if (alt) return alt;
+  const key = Object.keys(all).find((k) => n.startsWith(k) || n.endsWith(k) || k.startsWith(n) || n.replace(/^night-/, "") === k || n.replace(/-21$/, "") === k);
   return key ? all[key] : null;
 }
 
-function variantLabel(key) {
-  const parts = key.split("-");
+function variantLabel(image) {
+  if (image.quest) return "Quests";
+  const parts = image.key.split("-");
   const i = parts.findIndex((p) => p === "2d" || p === "3d");
-  if (i < 0) return key;
+  if (i < 0) return image.key;
   return [parts[i].toUpperCase(), ...parts.slice(i + 1).map((p) => p[0].toUpperCase() + p.slice(1))].join(" ");
 }
 
-function mapImage(m, all, { popout = false, picker = null, imageKey } = {}) {
+function mapImage(m, all, { popout = false, picker = null, imageKey, quest: questId } = {}) {
   const entry = imagesFor(m, all);
-  const images = entry?.images || [];
+  const questImage = entry?.quest ? { key: entry.quest.key, quest: true, author: entry.quest.author, authorLink: entry.quest.authorLink } : null;
+  const images = [...(questImage ? [questImage] : []), ...(entry?.images || [])];
   if (!images.length) {
     return h("div", picker ? h("div.toolbar.map-bar", picker) : null,
       empty("No map image for this map.", h("span", "Try the ", ext(`https://tarkov.dev/map/${m.normalizedName}`, "interactive map"), " on tarkov.dev.")));
   }
-  let current = Math.max(0, images.findIndex((im) => im.key === (imageKey || local.get(`mapimage.${m.normalizedName}`))));
+  const saved = () => Math.max(0, images.findIndex((im) => im.key === local.get(`mapimage.${m.normalizedName}`)));
+  // Which picture: the one asked for (popped out, or a quest to show), the
+  // quest map when you load into a raid here, else the one you last picked.
+  const pick = () => {
+    if (imageKey) { const i = images.findIndex((im) => im.key === imageKey); imageKey = null; if (i >= 0) return i; }
+    if (questImage && (questId || (raidKey(m) && raidChoice.image !== raidKey(m)))) return 0;
+    return saved();
+  };
+  let current = pick();
+  let shownRaid = raidKey(m);
+  let drawing = 0;
   const holder = h("div" + (popout ? ".popout-map" : ""));
-  const draw = () => {
+  const draw = async () => {
+    const ticket = ++drawing;
     const image = images[current];
-    const view = viewer(image, { popout });
+    const choose = images.length > 1 ? segmented(images.map((im, i) => [String(i), variantLabel(im)]), String(current), (v) => {
+      current = Number(v);
+      local.set(`mapimage.${m.normalizedName}`, images[current].key);
+      if (raidKey(m)) raidChoice.image = raidKey(m);
+      draw();
+    }) : null;
+    let data = null, picture = null;
+    if (image.quest) {
+      mount(holder, h("div.toolbar.map-bar", picker, choose), h("div.viewer" + (popout ? ".tall" : ""), h("div.viewer-msg", h("span", h("span.spinner"), " Placing quest markers…"))));
+      try {
+        // The quests too: which are done, pinned or available decides what's drawn.
+        [data] = await Promise.all([loadQuestMap(m.normalizedName), dataset("tasks").catch(() => null)]);
+      } catch (e) {
+        if (ticket !== drawing) return;
+        mount(holder, h("div.toolbar.map-bar", picker, choose), errorBox("Couldn't load the quest map: " + e.message, draw));
+        return;
+      }
+      if (ticket !== drawing) return;
+      const p = data.picture;
+      if (!p) {
+        mount(holder, h("div.toolbar.map-bar", picker, choose),
+          empty(data.error ? `Couldn't load tarkov.dev's drawing of ${m.name}: ${data.error}` : `tarkov.dev has no drawing of ${m.name} to put quest markers on.`,
+            h("span", "Try the ", ext(`https://tarkov.dev/map/${m.normalizedName}`, "interactive map"), " on tarkov.dev.")));
+        return;
+      }
+      picture = p.kind === "tiles" ? { kind: "tiles", tiles: p.tiles }
+        : { kind: "svg", url: `/api/mapsvg/${encodeURIComponent(p.key)}?token=${encodeURIComponent(TOKEN)}` };
+      picture.full = `https://tarkov.dev/map/${m.normalizedName}`;
+      picture.license = p.license;
+    }
+    const view = viewer(image, { popout, picture });
     const popOut = () => {
       const url = `/?popout=1#/maps/${m.normalizedName}?image=${encodeURIComponent(image.key)}`;
       if (!window.open(url, "raidready-map", POPOUT_SIZE)) toast("Couldn't open a new window.", { kind: "warn" });
     };
+    let filterBox = null, panel = null, refresh = null;
+    if (data) {
+      filterBox = h("label.field.quest-filter", { title: "Which quests' markers to show" }, icon("quests", 15));
+      panel = h("div.quest-panel");
+      refresh = () => {
+        const filter = questFilter(m);
+        const list = visibleQuests(data, filter);
+        mount(filterBox, icon("quests", 15), select(QUEST_FILTERS, filter, (v) => { setQuestFilter(m, v); refresh(); }));
+        view.setQuests(list);
+        drawQuestPanel(panel, m, data, list, filter, view, refresh);
+      };
+      view.onSelect = () => refresh && drawQuestPanel(panel, m, data, visibleQuests(data, questFilter(m)), questFilter(m), view, refresh);
+    }
     mount(holder,
       h("div.toolbar.map-bar",
         picker,
-        images.length > 1 ? segmented(images.map((im, i) => [String(i), variantLabel(im.key)]), String(current), (v) => {
-          current = Number(v);
-          local.set(`mapimage.${m.normalizedName}`, images[current].key);
-          draw();
-        }) : null,
+        choose,
+        filterBox,
         h("span.grow"),
         view.controls,
         popout ? null : button("Pop out", popOut, { iconName: "external", title: "Open this map in its own window" })),
       view.box,
+      panel || (questImage ? h("div.note.quest-hint", icon("info", 16), h("div",
+        "Quest markers are on the Quests map: tarkov.dev's drawing of ", m.name, " comes with the game's coordinates, so they land in the right place. ",
+        button("Show quest markers", () => { current = 0; local.set(`mapimage.${m.normalizedName}`, images[0].key); draw(); }, { kind: "small" }))) : null),
       markerList(image, view));
+    refreshNow = refresh;
+    if (refresh) {
+      refresh();
+      if (questId) { view.focusQuest(questId); questId = null; }
+    }
   };
+  // Progress, the raid you're in and tarkov.dev's data change what's drawn.
+  let refreshNow = null;
+  const redrawn = (why) => {
+    if (holder.isConnected) holder.dataset.shown = "1";
+    else { if (holder.dataset.shown) questLive.delete(redrawn); return; }
+    if (why === "raid") {
+      // Loaded into a raid on this map: the quest map, with the raid plan's quests.
+      const key = raidKey(m);
+      if (key === shownRaid) return;
+      shownRaid = key;
+      if (key && questImage && current !== 0 && raidChoice.image !== key) { current = 0; draw(); return; }
+    }
+    if (why === "data" && images[current].quest) { draw(); return; }
+    refreshNow?.();
+  };
+  if (questImage) questLive.add(redrawn);
   draw();
   return holder;
+}
+
+function drawQuestPanel(panel, m, data, list, filter, view, refresh) {
+  const raid = raidOn(m);
+  const spots = list.reduce((n, q) => n + q.markers.length, 0);
+  const emptyText = {
+    raid: `None of your raid plan's quests have marked spots on ${m.name}. Pin quests on the Raid plan or Quests page, or pick "Not done" and pin them here.`,
+    available: `No quests you can do now have marked spots on ${m.name}.`,
+    open: `Every quest with marked spots on ${m.name} is done.`,
+    all: `tarkov.dev has no quest spots on ${m.name}.`,
+    off: "Quest markers are off.",
+  }[filter];
+  const floors = (q) => [...new Set(q.markers.map((mk) => mk.floor).filter(Boolean))];
+  mount(panel,
+    h("div.section-title",
+      h("span", "Quest markers", badge(String(list.length), "accent")),
+      list.length ? h("span.muted.small", plural(spots, "spot")) : null),
+    raid && filter === "raid" ? h("div.note.raid-note", icon("raid", 16), h("div",
+      h("strong", `In raid on ${raid.name || m.name}.`), " Showing your raid plan's quests only. ",
+      button("Show all quests", () => { setQuestFilter(m, "open"); refresh(); }, { kind: "small" }))) : null,
+    list.length ? h("div.list.quest-rows", list.map((q) => h("div.list-row.quest-row" + (view.selected === q.id ? ".sel" : ""),
+      h("span.marker-dot", { style: `--pin: ${q.color}` }),
+      h("button.marker-note", { type: "button", title: "Show on the map", onclick: () => view.focusQuest(q.id) },
+        q.name, q.state === "done" ? h("span.muted", " (done)") : q.state === "locked" ? h("span.muted", " (locked)") : null),
+      h("span.muted.small.quest-row-sub", [q.trader, plural(q.markers.length, "spot"), ...floors(q)].filter(Boolean).join(" · ")),
+      button("", () => setProgress({ op: "pin", ids: [q.id], pinned: !q.pinned }).catch((e) => toast(e.message, { kind: "bad" })),
+        { kind: "ghost small" + (q.pinned ? " on" : ""), iconName: "pin", title: q.pinned ? "Unpin from your raid plan" : "Pin to your raid plan" }))))
+      : h("div.muted.small", emptyText),
+    h("div.muted.small.quest-foot",
+      "Circles are quest objectives (the shaded outline is the area that counts), diamonds are places a quest item can be. ",
+      "Spots on other floors are marked with the floor. ",
+      data.outside ? `${plural(data.outside, "spot")} outside tarkov.dev's map area ${data.outside === 1 ? "isn't" : "aren't"} shown. ` : "",
+      "Positions from ", ext(`https://tarkov.dev/map/${m.normalizedName}`, "tarkov.dev"), "."));
 }
 
 const markersOn = (image) => store.markers?.[image.key] || [];
 const firstLine = (note) => (note || "").split("\n")[0];
 
-// Pan and zoom a map image; right-click (or "Add marker" then click) to drop
-// a marker, click a marker to edit its note, drag it to move it.
-function viewer(image, { popout = false } = {}) {
+// Pan and zoom a map picture; right-click (or "Add marker" then click) to drop
+// a marker, click a marker to edit its note, drag it to move it. Quest markers
+// (setQuests) are drawn under your own.
+function viewer(image, { popout = false, picture: given = null } = {}) {
   let scale = 1, tx = 0, ty = 0, minScale = 0.05;
   let adding = false, editing = null;
   let labels = local.get("map.labels", true);
-  const picture = h("img", { src: image.url, alt: image.key, draggable: "false", referrerpolicy: "no-referrer" });
+  let quests = [];
+  const tiles = given?.kind === "tiles" ? given.tiles : null;
+  let picture;
+  if (tiles) {
+    // Satellite-style tiles laid side by side (maps tarkov.dev has no drawing of).
+    picture = h("div.tile-mosaic", { style: { width: tiles.width + "px", height: tiles.height + "px" } });
+    for (let r = 0; r < tiles.rows; r++) {
+      for (let c = 0; c < tiles.columns; c++) {
+        const src = tiles.url.replace("{z}", tiles.zoom).replace("{x}", tiles.x0 + c).replace("{y}", tiles.y0 + r);
+        picture.appendChild(h("img", { src, alt: "", draggable: "false", referrerpolicy: "no-referrer",
+          style: { left: c * tiles.size + "px", top: r * tiles.size + "px", width: tiles.size + "px", height: tiles.size + "px" },
+          onerror: (e) => e.target.remove() }));
+      }
+    }
+  } else {
+    picture = h("img", { src: given?.url || image.url, alt: image.key, draggable: "false", referrerpolicy: "no-referrer" });
+  }
+  const size = () => tiles ? [tiles.width, tiles.height] : [picture.naturalWidth, picture.naturalHeight];
   const msg = h("div.viewer-msg", h("span", h("span.spinner"), " Loading map image…"));
+  const zones = h("svg.quest-zones", { "aria-hidden": "true" });
+  const questLayer = h("div.quest-layer");
   const layer = h("div.marker-layer");
   const editor = h("div.marker-editor", { hidden: true });
-  const loaded = () => picture.naturalWidth > 0;
-  // image fraction <-> position in the viewer
-  const toScreen = (x, y) => [tx + x * picture.naturalWidth * scale, ty + y * picture.naturalHeight * scale];
-  const toImage = (cx, cy) => [(cx - tx) / (picture.naturalWidth * scale), (cy - ty) / (picture.naturalHeight * scale)];
+  const info = h("div.quest-info", { hidden: true });
+  const loaded = () => size()[0] > 0;
+  // picture fraction <-> position in the viewer
+  const toScreen = (x, y) => { const [w, ht] = size(); return [tx + x * w * scale, ty + y * ht * scale]; };
+  const toImage = (cx, cy) => { const [w, ht] = size(); return [(cx - tx) / (w * scale), (cy - ty) / (ht * scale)]; };
   const local_ = (e) => { const r = box.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
   const place = () => {
-    for (const pin of layer.children) {
+    for (const pin of [...layer.children, ...questLayer.children]) {
       const [x, y] = toScreen(Number(pin.dataset.x), Number(pin.dataset.y));
       pin.style.transform = `translate(${x}px, ${y}px)`;
     }
     placeEditor();
   };
-  const apply = () => { picture.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; place(); };
+  const apply = () => {
+    picture.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    zones.style.transform = picture.style.transform;
+    place();
+  };
 
   const addBtn = button("Add marker", () => setAdding(!adding), { iconName: "plus", title: "Then click the map. Or right-click the map at any time." });
-  const labelBtn = button("Labels", () => { labels = !labels; local.set("map.labels", labels); drawPins(); labelBtn.classList.toggle("on", labels); },
-    { iconName: "eye", title: "Show notes next to markers" });
+  const labelBtn = button("Labels", () => {
+    labels = !labels; local.set("map.labels", labels); drawPins(); drawQuests(); labelBtn.classList.toggle("on", labels);
+  }, { iconName: "eye", title: "Show notes and quest names next to markers" });
   labelBtn.classList.toggle("on", labels);
   const setAdding = (on) => { adding = on; addBtn.classList.toggle("primary", on); box.classList.toggle("adding", on); };
 
@@ -186,6 +408,82 @@ function viewer(image, { popout = false } = {}) {
     }));
     if (editing && !markers.some((mk) => mk.id === editing)) closeEditor({ quiet: true });  // removed elsewhere
     if (loaded()) place();
+  }
+
+  // -- quest markers --
+  const api_ = { selected: null, onSelect: null };
+  function drawQuests() {
+    const sel = api_.selected;
+    if (sel && !quests.some((q) => q.id === sel)) api_.selected = null;
+    const dim = (q) => api_.selected && api_.selected !== q.id;
+    const [w, ht] = size();
+    if (w) {
+      zones.setAttribute("width", w);
+      zones.setAttribute("height", ht);
+      zones.setAttribute("viewBox", `0 0 ${w} ${ht}`);
+      mount(zones, quests.flatMap((q) => q.markers.filter((mk) => mk.outline).map((mk) => h("polygon", {
+        points: mk.outline.map(([x, y]) => `${(x * w).toFixed(1)},${(y * ht).toFixed(1)}`).join(" "),
+        style: `--q: ${q.color}`, class: dim(q) ? "dim" : null }))));
+    }
+    mount(questLayer, quests.flatMap((q) => q.markers.map((mk) => {
+      const tip = [q.name + (mk.floor ? ` (${mk.floor})` : ""), mk.text, mk.item ? `Item: ${mk.item}` : null, mk.optional ? "Optional" : null]
+        .filter(Boolean).join("\n");
+      const pin = h("div.quest-pin" + (mk.kind === "item" ? ".item" : "") + (dim(q) ? ".dim" : "") + (api_.selected === q.id ? ".sel" : ""),
+        { dataset: { x: mk.x, y: mk.y }, style: `--q: ${q.color}` },
+        h("span.qp-dot", { title: tip }),
+        labels ? h("span.qp-label", q.name + (mk.floor ? ` · ${mk.floor}` : "")) : null);
+      pin.firstChild.addEventListener("click", (e) => { e.stopPropagation(); selectQuest(q, mk); });
+      return pin;
+    })));
+    drawInfo();
+    if (loaded()) place();
+  }
+
+  function selectQuest(q, mk) {
+    api_.selected = q && api_.selected !== q.id ? q.id : null;
+    api_.shown = api_.selected ? mk : null;
+    drawQuests();
+    api_.onSelect?.(api_.selected);
+  }
+
+  // The quest of the marker you clicked: what to do there.
+  function drawInfo() {
+    const q = quests.find((x) => x.id === api_.selected);
+    const mk = api_.shown;
+    if (!q) { info.hidden = true; info.replaceChildren(); return; }
+    const here = mk ? q.markers.filter((x) => x.x === mk.x && x.y === mk.y) : [];
+    mount(info,
+      h("div.quest-info-head", h("span.marker-dot", { style: `--pin: ${q.color}` }), h("strong.grow", q.name),
+        button("", () => selectQuest(null), { kind: "ghost small", iconName: "x", title: "Close" })),
+      h("div.muted.small", [q.trader, plural(q.markers.length, "spot") + " on this map"].filter(Boolean).join(" · ")),
+      here.length ? h("ul.quest-info-list", here.map((x) => h("li", x.text || (x.kind === "item" ? "Quest item" : "Objective"),
+        x.item ? h("div.muted.small", `Item: ${x.item}`) : null,
+        x.floor ? h("div.muted.small", x.floor) : null))) : null,
+      h("div.quest-info-actions",
+        button(q.pinned ? "Pinned" : "Pin", () => setProgress({ op: "pin", ids: [q.id], pinned: !q.pinned }).catch((e) => toast(e.message, { kind: "bad" })),
+          { kind: "small" + (q.pinned ? " on" : ""), iconName: "pin", title: q.pinned ? "Unpin from your raid plan" : "Pin to your raid plan" }),
+        h("a.btn.small", { href: `#/quests?q=${encodeURIComponent(q.name)}` }, h("span", "Quest"))));
+    info.hidden = false;
+  }
+
+  // Zoom to a quest's markers and pick it out.
+  function focusQuest(id) {
+    const q = quests.find((x) => x.id === id);
+    if (!q) return;
+    api_.selected = id;
+    api_.shown = q.markers.length === 1 ? q.markers[0] : null;
+    drawQuests();
+    api_.onSelect?.(id);
+    if (!loaded()) return;
+    const [w, ht] = size();
+    const r = box.getBoundingClientRect();
+    const xs = q.markers.map((mk) => mk.x * w), ys = q.markers.map((mk) => mk.y * ht);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const span = Math.max(maxX - minX, maxY - minY, Math.max(w, ht) * 0.06);
+    scale = Math.max(minScale, Math.min(6, (Math.min(r.width, r.height) * 0.7) / span));
+    tx = r.width / 2 - ((minX + maxX) / 2) * scale;
+    ty = r.height / 2 - ((minY + maxY) / 2) * scale;
+    apply();
   }
 
   function pinDrag(pin, mk) {
@@ -307,29 +605,36 @@ function viewer(image, { popout = false } = {}) {
   function focus(id) {
     const mk = markersOn(image).find((x) => x.id === id);
     if (!mk || !loaded()) return;
+    const [w, ht] = size();
     const r = box.getBoundingClientRect();
     if (scale < minScale * 3) scale = Math.min(6, minScale * 4);
-    tx = r.width / 2 - mk.x * picture.naturalWidth * scale;
-    ty = r.height / 2 - mk.y * picture.naturalHeight * scale;
+    tx = r.width / 2 - mk.x * w * scale;
+    ty = r.height / 2 - mk.y * ht * scale;
     apply();
     openEditor(id);
   }
 
-  const box = h("div.viewer" + (popout ? ".tall" : ""), msg, picture, layer, editor,
+  const credit = given?.kind ? (image.author ? h("div.viewer-credit", "Map by ",
+    image.authorLink ? h("a", { href: image.authorLink, target: "_blank", rel: "noopener noreferrer" }, image.author) : image.author,
+    " for tarkov.dev", given.license ? [" · ", h("a", { href: given.license.link, target: "_blank", rel: "noopener noreferrer" }, given.license.name)] : null) : null)
+    : image.author ? h("div.viewer-credit", "Map by ",
+      image.authorLink ? h("a", { href: image.authorLink, target: "_blank", rel: "noopener noreferrer" }, image.author) : image.author) : null;
+  const box = h("div.viewer" + (popout ? ".tall" : ""), msg, picture, zones, questLayer, layer, editor, info,
     h("div.viewer-tools",
       button("", () => zoom(1.3), { iconName: "zoomin", title: "Zoom in" }),
       button("", () => zoom(1 / 1.3), { iconName: "zoomout", title: "Zoom out" }),
       button("", fit, { iconName: "expand", title: "Fit" }),
-      h("a.btn", { href: image.url, target: "_blank", rel: "noopener noreferrer", title: "Open full size" }, icon("external", 16))),
-    image.author ? h("div.viewer-credit", "Map by ",
-      image.authorLink ? h("a", { href: image.authorLink, target: "_blank", rel: "noopener noreferrer" }, image.author) : image.author) : null);
+      h("a.btn", { href: given?.full || image.url, target: "_blank", rel: "noopener noreferrer",
+        title: given?.full ? "Open tarkov.dev's interactive map" : "Open full size" }, icon("external", 16))),
+    credit);
   function fit() {
     if (!loaded()) return;
+    const [w, ht] = size();
     const r = box.getBoundingClientRect();
-    scale = Math.min(r.width / picture.naturalWidth, r.height / picture.naturalHeight);
+    scale = Math.min(r.width / w, r.height / ht);
     minScale = scale * 0.5;
-    tx = (r.width - picture.naturalWidth * scale) / 2;
-    ty = (r.height - picture.naturalHeight * scale) / 2;
+    tx = (r.width - w * scale) / 2;
+    ty = (r.height - ht * scale) / 2;
     apply();
   }
   function zoom(f, cx, cy) {
@@ -341,14 +646,28 @@ function viewer(image, { popout = false } = {}) {
     scale = ns;
     apply();
   }
-  const inUi = (e) => e.target.closest(".viewer-tools, .viewer-credit, .marker-editor, .marker-pin");
-  picture.addEventListener("load", () => { msg.remove(); fit(); });
-  picture.addEventListener("error", () => {
-    picture.classList.add("broken");
-    mount(msg, h("span", "Couldn't load the map image. ", ext(image.url, "Open it directly")));
-  });
+  // Shown and sized once the picture's size is known and the viewer is on the page.
+  let ready = false;
+  const show = () => {
+    if (ready || !loaded() || !box.isConnected || !box.clientWidth) return;
+    ready = true;
+    msg.remove();
+    fit();
+    drawQuests();
+    pending?.();
+    pending = null;
+  };
+  let pending = null;
+  const inUi = (e) => e.target.closest(".viewer-tools, .viewer-credit, .marker-editor, .marker-pin, .quest-pin, .quest-info");
+  if (!tiles) {
+    picture.addEventListener("load", show);
+    picture.addEventListener("error", () => {
+      picture.classList.add("broken");
+      mount(msg, h("span", "Couldn't load the map image. ", ext(given?.full || image.url, "Open it directly")));
+    });
+  }
   box.addEventListener("wheel", (e) => {
-    if (e.target.closest(".marker-editor")) return;
+    if (e.target.closest(".marker-editor, .quest-info")) return;
     e.preventDefault();
     zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, ...local_(e));
   }, { passive: false });
@@ -383,12 +702,16 @@ function viewer(image, { popout = false } = {}) {
     addAt(...local_(e));
   });
   box.addEventListener("dblclick", (e) => { if (!inUi(e) && !adding) zoom(1.8, ...local_(e)); });
-  new ResizeObserver(() => { if (loaded()) place(); }).observe(box);
+  new ResizeObserver(() => { if (!ready) show(); else if (loaded()) place(); }).observe(box);
 
   const redraw = () => { if (!box.isConnected) live.delete(redraw); else drawPins(); };
   live.add(redraw);
   drawPins();
-  return { box, controls: h("div.map-marker-tools", addBtn, labelBtn), focus };
+  return Object.assign(api_, {
+    box, controls: h("div.map-marker-tools", addBtn, labelBtn), focus,
+    setQuests(list) { quests = list || []; drawQuests(); },
+    focusQuest(id) { if (ready) focusQuest(id); else pending = () => focusQuest(id); },
+  });
 }
 
 function markerList(image, view) {
