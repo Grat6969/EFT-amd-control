@@ -194,14 +194,19 @@ export function objectiveHow(o) {
 
 // -- where ------------------------------------------------------------------------------------
 
-// Link to tarkov.dev's interactive map with this objective's spots highlighted.
-export function mapLink(o, task) {
+// The map (normalizedName) an objective is on, if one.
+function objectiveMapNorm(o, task) {
   const maps = mapIndex();
   const ids = objectiveMapIds(o);
   const mapId = ids[0] || task?.map?.id;
   if (!mapId) return null;
-  const norm = objs(o.maps).find((m) => m.id === mapId)?.normalizedName || maps.get(mapId)?.normalizedName
+  return objs(o.maps).find((m) => m.id === mapId)?.normalizedName || maps.get(mapId)?.normalizedName
     || (task?.map?.id === mapId ? task.map.normalizedName : null);
+}
+
+// Link to tarkov.dev's interactive map with this objective's spots highlighted.
+export function mapLink(o, task) {
+  const norm = objectiveMapNorm(o, task);
   if (!norm) return null;
   const q = objs(o.zones).map((z) => z.id).filter(Boolean);
   if (o.type === "findQuestItem" && o.questItem?.id) q.push(o.questItem.id);
@@ -224,7 +229,14 @@ export function objectiveWhere(o, task) {
     out.push(line(group.length > 1 ? "Key (any)" : "Key", chips(group, null, true)));
   }
   const link = (ids.length || objs(o.zones).length) ? mapLink(o, task) : null;
-  if (link) out.push(h("div.how-line", h("span.how-label"), ext(link, objs(o.zones).length || o.type === "findQuestItem" ? "Show the spot on tarkov.dev's map" : "Open the map on tarkov.dev")));
+  // The app's own map, zoomed to this quest's markers, when tarkov.dev has the spots.
+  const spots = objs(o.zones).some((z) => z.position) || objs(o.possibleLocations).some((l) => list(l.positions).length);
+  const norm = spots && task?.id ? objectiveMapNorm(o, task) : null;
+  const here = norm ? h("a", { href: `#/maps/${norm}?quest=${encodeURIComponent(task.id)}` }, "Show on the map") : null;
+  if (link || here) {
+    out.push(h("div.how-line", h("span.how-label"), here, here && link ? h("span.muted", " · ") : null,
+      link ? ext(link, objs(o.zones).length || o.type === "findQuestItem" ? "Show the spot on tarkov.dev's map" : "Open the map on tarkov.dev") : null));
+  }
   return out;
 }
 

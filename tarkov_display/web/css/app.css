@@ -623,6 +623,7 @@ kbd { font-family: var(--font-head); font-size: 12px; background: var(--panel-3)
 .btn.on { color: var(--accent); border-color: var(--accent-2); }
 .raid-note, .quest-hint { margin: 10px 0 4px; }
 .quest-foot { margin-top: 8px; }
+.raid-map-link { margin-left: auto; }
 
 /* the popped-out map window */
 body.popout #app { display: block; }

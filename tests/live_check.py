@@ -41,6 +41,7 @@ ITEM_REFS = ("questItem", "markerItem", "item")
 
 
 DUMP: list = []  # --dump-quest-maps lines
+DUMP_MAPS: set = set()  # only these maps in the dump (all if empty)
 
 
 class Report:
@@ -354,7 +355,7 @@ def check_quest_maps(rep: Report, mode: str, out: dict, images: Optional[dict], 
             rep.warn("zone markers outside their own outline", f"{norm}: {len(outside_own_outline)}, e.g. {outside_own_outline[0]['text'][:60]}")
         if positions and result["outside"] > positions / 2:
             rep.error(f"[{mode}] {norm}: {result['outside']} of {positions} quest positions are off the map: the map's bounds look wrong")
-        if pic and dump:
+        if pic and dump and (not DUMP_MAPS or norm in DUMP_MAPS):
             n = lambda v: round(v * 10000)  # noqa: E731
             dumped.append({"map": norm, "p": [pic["key"], pic["kind"], pic["width"], pic["height"]],
                            "q": [[q["name"], [[n(mk["x"]), n(mk["y"]), mk["kind"][0], mk.get("floor"),
@@ -449,7 +450,9 @@ def main(argv=None) -> int:
     parser.add_argument("--items", type=int, default=40, help="random item panels to build per mode")
     parser.add_argument("--dump-quest-maps", action="store_true", help="print PvP quest markers, compressed, to draw elsewhere")
     parser.add_argument("--only-quest-maps", action="store_true", help="only the quest map check, PvP")
+    parser.add_argument("--dump-maps", default="", help="comma-separated maps to dump (default: all)")
     args = parser.parse_args(argv)
+    DUMP_MAPS.update(m for m in args.dump_maps.split(",") if m)
     args.map_images = None
     record_downloads(args.save)
     rep = Report()

@@ -85,4 +85,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Quest markers on every map
-        run: python -m tests.live_check --only-quest-maps --dump-quest-maps
+        run: python -m tests.live_check --only-quest-maps --dump-quest-maps --dump-maps customs,shoreline

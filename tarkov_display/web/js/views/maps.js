@@ -135,7 +135,7 @@ async function drawPopout(root, maps, m, query) {
   try { images = await dataset("mapimages"); } catch { images = null; }
   const picker = select(maps.map((x) => [x.normalizedName, x.name]), m.normalizedName,
     (v) => { location.hash = `#/maps/${v}`; }, { title: "Map" });
-  mount(root, mapImage(m, images, { popout: true, picker, imageKey: query.image, quest: query.quest }));
+  mount(root, mapImage(m, images, { popout: true, picker, imageKey: query.image, quest: query.quest, filter: query.filter }));
 }
 
 async function drawMap(root, m, query = {}) {
@@ -149,7 +149,7 @@ async function drawMap(root, m, query = {}) {
       mount(body, loading());
       let images = null;
       try { images = await dataset("mapimages"); } catch { images = null; }
-      mount(body, mapImage(m, images, { quest: query.quest }));
+      mount(body, mapImage(m, images, { quest: query.quest, filter: query.filter }));
     } else if (tab === "bosses") mount(body, bosses(m));
     else if (tab === "extracts") mount(body, extracts(m));
     else if (tab === "keys") mount(body, keys(m));
@@ -192,7 +192,7 @@ function variantLabel(image) {
   return [parts[i].toUpperCase(), ...parts.slice(i + 1).map((p) => p[0].toUpperCase() + p.slice(1))].join(" ");
 }
 
-function mapImage(m, all, { popout = false, picker = null, imageKey, quest: questId } = {}) {
+function mapImage(m, all, { popout = false, picker = null, imageKey, quest: questId, filter: asked } = {}) {
   const entry = imagesFor(m, all);
   const questImage = entry?.quest ? { key: entry.quest.key, quest: true, author: entry.quest.author, authorLink: entry.quest.authorLink } : null;
   const images = [...(questImage ? [questImage] : []), ...(entry?.images || [])];
@@ -210,6 +210,10 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
   };
   let current = pick();
   let shownRaid = raidKey(m);
+  // A filter asked for in the address (the Raid plan's "Show on the map"), or
+  // "All quests" to show a quest asked for that the usual filter hides; until
+  // you pick one yourself.
+  let forced = QUEST_FILTERS.some(([v]) => v === asked) ? asked : null;
   let drawing = 0;
   const holder = h("div" + (popout ? ".popout-map" : ""));
   const draw = async () => {
@@ -254,14 +258,23 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
     if (data) {
       filterBox = h("label.field.quest-filter", { title: "Which quests' markers to show" }, icon("quests", 15));
       panel = h("div.quest-panel");
-      refresh = () => {
-        const filter = questFilter(m);
-        const list = visibleQuests(data, filter);
-        mount(filterBox, icon("quests", 15), select(QUEST_FILTERS, filter, (v) => { setQuestFilter(m, v); refresh(); }));
-        view.setQuests(list);
-        drawQuestPanel(panel, m, data, list, filter, view, refresh);
+      const shown = () => {
+        let filter = forced || questFilter(m);
+        let list = visibleQuests(data, filter);
+        if (questId && !list.some((q) => q.id === questId) && data.quests.some((q) => q.id === questId)) {
+          forced = filter = "all";
+          list = visibleQuests(data, filter);
+        }
+        return [filter, list];
       };
-      view.onSelect = () => refresh && drawQuestPanel(panel, m, data, visibleQuests(data, questFilter(m)), questFilter(m), view, refresh);
+      const choose = (v) => { forced = null; setQuestFilter(m, v); refresh(); };
+      refresh = () => {
+        const [filter, list] = shown();
+        mount(filterBox, icon("quests", 15), select(QUEST_FILTERS, filter, choose));
+        view.setQuests(list);
+        drawQuestPanel(panel, m, data, list, filter, view, choose);
+      };
+      view.onSelect = () => { const [filter, list] = shown(); drawQuestPanel(panel, m, data, list, filter, view, choose); };
     }
     mount(holder,
       h("div.toolbar.map-bar",
@@ -302,7 +315,7 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
   return holder;
 }
 
-function drawQuestPanel(panel, m, data, list, filter, view, refresh) {
+function drawQuestPanel(panel, m, data, list, filter, view, choose) {
   const raid = raidOn(m);
   const spots = list.reduce((n, q) => n + q.markers.length, 0);
   const emptyText = {
@@ -319,7 +332,7 @@ function drawQuestPanel(panel, m, data, list, filter, view, refresh) {
       list.length ? h("span.muted.small", plural(spots, "spot")) : null),
     raid && filter === "raid" ? h("div.note.raid-note", icon("raid", 16), h("div",
       h("strong", `In raid on ${raid.name || m.name}.`), " Showing your raid plan's quests only. ",
-      button("Show all quests", () => { setQuestFilter(m, "open"); refresh(); }, { kind: "small" }))) : null,
+      button("Show all quests", () => choose("open"), { kind: "small" }))) : null,
     list.length ? h("div.list.quest-rows", list.map((q) => h("div.list-row.quest-row" + (view.selected === q.id ? ".sel" : ""),
       h("span.marker-dot", { style: `--pin: ${q.color}` }),
       h("button.marker-note", { type: "button", title: "Show on the map", onclick: () => view.focusQuest(q.id) },

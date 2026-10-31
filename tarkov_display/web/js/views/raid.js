@@ -44,7 +44,9 @@ export default {
             "All maps", pinned.length ? h("span.fchip-count", String(pinned.length)) : null),
           maps.map((m) => h("button.fchip" + (mapNorm === m.normalizedName ? ".on" : ""), {
             type: "button", onclick: () => { mapNorm = m.normalizedName; draw(); },
-          }, m.name, counts.get(m.id) ? h("span.fchip-count", String(counts.get(m.id))) : null))));
+          }, m.name, counts.get(m.id) ? h("span.fchip-count", String(counts.get(m.id))) : null)),
+          map ? h("a.btn.small.raid-map-link", { href: `#/maps/${map.normalizedName}?filter=raid`, title: "Your pinned quests' markers on the map" },
+            icon("maps", 15), h("span", "Show on the map")) : null));
 
       const left = here.flatMap((t) => objs(t.objectives).filter((o) => !o.optional && isInRaid(o) && onMap(o, mapId) && !objectiveDone(o)));
       const kit = raidKit(here, mapId);
