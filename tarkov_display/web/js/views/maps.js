@@ -267,14 +267,14 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
         }
         return [filter, list];
       };
-      const choose = (v) => { forced = null; setQuestFilter(m, v); refresh(); };
+      const pickFilter = (v) => { forced = null; setQuestFilter(m, v); refresh(); };
       refresh = () => {
         const [filter, list] = shown();
-        mount(filterBox, icon("quests", 15), select(QUEST_FILTERS, filter, choose));
+        mount(filterBox, icon("quests", 15), select(QUEST_FILTERS, filter, pickFilter));
         view.setQuests(list);
-        drawQuestPanel(panel, m, data, list, filter, view, choose);
+        drawQuestPanel(panel, m, data, list, filter, view, pickFilter);
       };
-      view.onSelect = () => { const [filter, list] = shown(); drawQuestPanel(panel, m, data, list, filter, view, choose); };
+      view.onSelect = () => { const [filter, list] = shown(); drawQuestPanel(panel, m, data, list, filter, view, pickFilter); };
     }
     mount(holder,
       h("div.toolbar.map-bar",
@@ -305,6 +305,7 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
       const key = raidKey(m);
       if (key === shownRaid) return;
       shownRaid = key;
+      if (key) forced = null;  // a raid starting here wins over a filter from a link
       if (key && questImage && current !== 0 && raidChoice.image !== key) { current = 0; draw(); return; }
     }
     if (why === "data" && images[current].quest) { draw(); return; }
