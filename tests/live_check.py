@@ -448,10 +448,18 @@ def main(argv=None) -> int:
     parser.add_argument("--graphql", action="store_true", help="also try the GraphQL API (not counted)")
     parser.add_argument("--items", type=int, default=40, help="random item panels to build per mode")
     parser.add_argument("--dump-quest-maps", action="store_true", help="print PvP quest markers, compressed, to draw elsewhere")
+    parser.add_argument("--only-quest-maps", action="store_true", help="only the quest map check, PvP")
     args = parser.parse_args(argv)
     args.map_images = None
     record_downloads(args.save)
     rep = Report()
+    if args.only_quest_maps:
+        args.map_images = datasets._map_images(TarkovClient())
+        check_labels(rep)
+        client = TarkovClient(game_mode="regular", timeout=120)
+        out = {"maps": staticapi.maps(client), "tasks": staticapi.tasks(client)}
+        check_quest_maps(rep, "regular", out, args.map_images, dump=args.dump_quest_maps)
+        return finish(rep)
     try:
         status = staticapi.status(TarkovClient())
         print("status ok:", [s.get("name") for s in status.get("currentStatuses") or []][:8])
@@ -473,7 +481,10 @@ def main(argv=None) -> int:
             rep.error(f"{label} crashed:\n{traceback.format_exc()}")
     for mode in ("regular", "pve"):
         check_mode(rep, mode, args)
+    return finish(rep)
 
+
+def finish(rep: Report) -> int:
     print("\n== warnings ==")
     for message, count in rep.warnings.most_common():
         example = rep.examples.get(message)
