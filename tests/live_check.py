@@ -40,6 +40,9 @@ ITEM_GROUPS = ("requiredKeys", "wearing", "usingWeaponMods")
 ITEM_REFS = ("questItem", "markerItem", "item")
 
 
+DUMP: list = []  # --dump-quest-maps lines
+
+
 class Report:
     def __init__(self) -> None:
         self.errors: list = []
@@ -351,13 +354,12 @@ def check_quest_maps(rep: Report, mode: str, out: dict, images: Optional[dict], 
             rep.warn("zone markers outside their own outline", f"{norm}: {len(outside_own_outline)}, e.g. {outside_own_outline[0]['text'][:60]}")
         if positions and result["outside"] > positions / 2:
             rep.error(f"[{mode}] {norm}: {result['outside']} of {positions} quest positions are off the map: the map's bounds look wrong")
-        entry = questmap.entry_for(images, norm)
-        if pic and entry and dump:
-            dumped.append({"map": norm, "picture": {k: pic.get(k) for k in ("key", "kind", "width", "height")},
-                           "tiles": pic.get("tiles"),
-                           "quests": [{"name": q["name"], "markers": [[mk["x"], mk["y"], mk["kind"], mk.get("floor"), mk["text"][:70],
-                                                                       mk.get("outline")] for mk in q["markers"]]}
-                                      for q in result["quests"]]})
+        if pic and dump:
+            n = lambda v: round(v * 10000)  # noqa: E731
+            dumped.append({"map": norm, "p": [pic["key"], pic["kind"], pic["width"], pic["height"]],
+                           "q": [[q["name"], [[n(mk["x"]), n(mk["y"]), mk["kind"][0], mk.get("floor"),
+                                               [n(c) for pt in mk.get("outline") or [] for c in pt]] for mk in q["markers"]]]
+                                 for q in result["quests"]]})
     print(f"  quest maps               ok  {totals['quests']} quest/map pairs, {totals['markers']} spots from "
           f"{totals['positions']} positions, {totals['outside']} off tarkov.dev's maps")
     if not totals["markers"]:
@@ -377,13 +379,11 @@ def check_quest_maps(rep: Report, mode: str, out: dict, images: Optional[dict], 
                 except Exception as exc:
                     rep.warn("map tile missing", f"{url}: {exc}")
             print(f"  tiles {entry['key']:20} z{layout['zoom']} {layout['columns']}x{layout['rows']}: {ok}/{len(corners)} sample tiles there")
-    if dump and dumped:
+    if dump and dumped:  # printed last (see main), so the end of the log has it
         import base64
         import gzip
         blob = base64.b64encode(gzip.compress(json.dumps(dumped, separators=(",", ":")).encode(), 9)).decode()
-        print(f"  QMDUMP {len(blob)} chars")
-        for i in range(0, len(blob), 3000):
-            print("QMDUMP " + blob[i:i + 3000])
+        DUMP.extend("QMDUMP " + blob[i:i + 4000] for i in range(0, len(blob), 4000))
 
 
 def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> None:
@@ -479,6 +479,8 @@ def main(argv=None) -> int:
         example = rep.examples.get(message)
         print(f"  {count:5}x {message}" + (f"   e.g. {str(example)[:160]}" if example is not None else ""))
     print(f"\n{len(rep.errors)} error(s), {sum(rep.warnings.values())} warning(s)")
+    for line in DUMP:
+        print(line)
     return 1 if rep.errors else 0
 
 

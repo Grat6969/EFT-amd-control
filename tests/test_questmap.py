@@ -90,6 +90,12 @@ def test_tile_layout_matches_leaflet():
     assert close((fx * layout["width"], fy * layout["height"]), (px * 16 - 0, py * 16 - 2 * 175))
     small = tile_layout(lab, target=100000)  # asked for more tiles than allowed: a smaller zoom
     assert small["columns"] * small["rows"] <= questmap.MAX_TILES or small["zoom"] == 2
+    # Bounds reaching past tile 0 (Icebreaker's): no tiles with negative numbers.
+    ice = quest_entry({"key": "icebreaker", "transform": [2.0, 125.0, 3.5, 91.0], "coordinateRotation": 180,
+                       "bounds": [[77, -64.5], [-65.5, 67.4]], "tilePath": "https://assets.tarkov.dev/maps/icebreaker/06/{z}/{x}/{y}.png",
+                       "minZoom": 1, "maxZoom": 5})
+    layout = tile_layout(ice)
+    assert layout["x0"] >= 0 and layout["y0"] >= 0 and layout["columns"] >= 1 and layout["rows"] >= 1
 
 
 def test_quest_entry_checks_what_it_keeps():

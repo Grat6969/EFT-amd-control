@@ -128,8 +128,9 @@ def tile_layout(entry: dict, target: float = MOSAIC_SIZE) -> dict:
     zoom = max(low, min(high, math.ceil(math.log2(target / longest)) if longest > 0 else low))
     while True:
         k = 2 ** zoom
-        i0, j0 = math.floor(minx * k / size), math.floor(miny * k / size)
-        i1, j1 = math.ceil(maxx * k / size) - 1, math.ceil(maxy * k / size) - 1
+        # Tile numbers start at 0: a map whose bounds reach further has no tiles there.
+        i0, j0 = max(0, math.floor(minx * k / size)), max(0, math.floor(miny * k / size))
+        i1, j1 = max(i0, math.ceil(maxx * k / size) - 1), max(j0, math.ceil(maxy * k / size) - 1)
         if (i1 - i0 + 1) * (j1 - j0 + 1) <= MAX_TILES or zoom <= low:
             break
         zoom -= 1
