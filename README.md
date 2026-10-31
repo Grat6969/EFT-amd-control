@@ -154,6 +154,9 @@ objective on that map, as tarkov.dev's interactive map has them:
   drop off the map.
 - Click a marker to see its quest's objective, pin it to your raid plan, or open the
   quest. The list under the map does the same, and zooms to a quest's markers.
+  **Show on the map** next to an objective (Quests and Raid plan pages) opens the map
+  zoomed to that quest, and the Raid plan's **Show on the map** button shows just your
+  pinned quests.
 - **In a raid** (with the game log reader on): when you load into a raid, the map opens
   (in the popped-out map window too) and shows **only the quests in your raid plan**.
   When the raid ends it goes back to your usual choice. Pick another filter during a
