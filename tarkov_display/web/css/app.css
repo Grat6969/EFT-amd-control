@@ -100,6 +100,9 @@ button, input, select { font: inherit; color: inherit; }
 .topbar {
   display: flex; align-items: center; gap: 18px; padding: 16px 26px 14px;
   border-bottom: 1px solid var(--line); background: rgba(9, 11, 12, 0.6); backdrop-filter: blur(6px);
+  /* backdrop-filter makes the bar its own stacking context, which traps the
+     search dropdown's z-index inside it; lift the whole bar above the page. */
+  position: relative; z-index: 40;
 }
 .titles { min-width: 0; flex: 1; }
 .titles h1 { margin: 0; font-family: var(--font-head); font-size: 22px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
