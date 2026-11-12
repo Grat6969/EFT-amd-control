@@ -20,6 +20,7 @@ class Match:
     text: str
     full: bool = False  # matched the full name (only the tooltip shows it), not the short name
     key: str = ""       # the (normalized) name or short name that matched
+    guess: bool = False  # a rough match, taken when the reader couldn't tell (see scanner.ItemScanner.guess)
 
 
 class ItemMatcher:
