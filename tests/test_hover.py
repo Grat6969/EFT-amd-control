@@ -548,6 +548,18 @@ def test_ctrl_alt_p_waits_for_the_tooltip():
     assert 2 <= len(naps) <= 8
 
 
+def test_a_name_the_reader_wont_take_is_still_answered_as_a_best_guess():
+    # A tooltip read too poorly for the reader (under its 0.8), with a
+    # neighbour's label nearer the mouse: the forgiving matcher still names it.
+    scanner = scanner_with([("Bolts", LABEL_BELOW), "Grahpic crd"])
+    naps = []
+    result = scanner.scan_waiting(sleep=naps.append)
+    assert result.match.item.id == "gpu" and result.match.guess and naps  # only after waiting for a better read
+    assert scanner_with(["Grahpic crd"]).scan().match.guess
+    assert scanner_with(["Grahpic crd"]).scan(strict=True).match is None   # never for hover checks
+    assert not scanner_with(["Graphics card"]).scan().match.guess
+
+
 def test_ctrl_alt_p_with_the_tooltip_up_answers_at_once():
     scanner = scanner_with(["Graphics card"])
     naps = []

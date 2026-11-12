@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Tuple
 
-from .matching import ItemMatcher, Match
+from .matching import FULL_NAME_SCORE, MIN_SCORE, ItemMatcher, Match, candidate_lines
 from .ocr import create_ocr, order_by_distance
 from .prices import PriceDB
 from .profiles import ScanConfig
@@ -49,6 +49,7 @@ class ScanResult:
     debug_file: Optional[Path] = None
     why: str = ""   # how the reader decided (for the debug log)
     hint: str = ""  # why there's no answer, for the player
+    guess: Optional[Match] = None  # with no match: what the forgiving matcher makes of the text (see ItemScanner.guess)
 
 
 def capture_rect(cursor, screen_height: int, cfg: ScanConfig):
@@ -96,11 +97,14 @@ class ItemScanner:
     def _k(self) -> float:
         return max(0.5, self.screen.target_rect()[3] / 1080.0)
 
-    def scan(self, mask: Iterable[Mask] = (), quiet: bool = False, strict: bool = False) -> ScanResult:
+    def scan(self, mask: Iterable[Mask] = (), quiet: bool = False, strict: bool = False,
+             settle: bool = True) -> ScanResult:
         """Check the item under the cursor. ``mask``: screen boxes to leave out
         of the capture, such as our own popup. ``quiet``: log the result only
         in the debug log (hover checks). ``strict``: only answer from a full
-        name, the tooltip's (hover checks that didn't see the tooltip appear)."""
+        name, the tooltip's (hover checks that didn't see the tooltip appear).
+        ``settle``: when the reader can't tell, answer with the forgiving
+        matcher's best guess if it has one (never for strict checks)."""
         if not self.prices.items:
             return ScanResult(None, error="Prices not downloaded yet (check your internet connection).")
         cursor = self.screen.cursor_pos()
@@ -127,7 +131,32 @@ class ItemScanner:
                 decision = self.reader().decide(segs + label_segs, cursor, k)
                 texts += [f"label: {t}" for t in label_texts]
         result = ScanResult(_match(decision), texts, cursor, why=decision.why, hint=decision.hint)
+        if result.match is None and not strict:
+            result.guess = self.guess(texts, decision)
+            if settle:
+                _settle(result)
         return self._done(result, bgra, iw, ih, quiet, "hover" if strict else "scan")
+
+    def guess(self, texts: List[str], decision: Decision) -> Optional[Match]:
+        """With no answer from the reader: the forgiving matcher's reading of
+        the lines (nearest the mouse first) as an item's full name, the way
+        the price check worked before the reader was rebuilt. On a real game
+        screen the reader's demands on how well the tooltip reads and where
+        it sits can leave it with nothing, where a rough match of the name
+        is what the player wants. Only full names that aren't also a short
+        name count: those can't be a neighbour's grid label. And not when
+        the reader found the text fits several items alike: a guess between
+        those is a coin toss, and the popup says which they are."""
+        if decision.hint.startswith("Could be") or "are labelled" in decision.hint:
+            return None
+        matcher = self.matcher()
+        lines = candidate_lines([t for t in texts if not t.startswith("label: ")])
+        found = [m for m in (matcher.match_line(t) for t in lines)
+                 if m is not None and m.full and m.score >= MIN_SCORE and not matcher.ambiguous(m)]
+        for m in found:
+            if m.score >= FULL_NAME_SCORE:
+                return m
+        return max(found, key=lambda m: m.score, default=None)
 
     def scan_waiting(self, mask: Iterable[Mask] = (), wait: float = WAIT_FOR_TOOLTIP,
                      sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> ScanResult:
@@ -141,7 +170,7 @@ class ItemScanner:
             base = prev = self.snapshot(area, mask)
         except OSError:
             return self.scan(mask)
-        first = self.scan(mask)
+        first = self.scan(mask, settle=False)
         if first.error or (first.match and first.match.full):
             return first
         tried: List[Box] = []
@@ -167,6 +196,8 @@ class ItemScanner:
                 if result.match:
                     log.info("Scan: the tooltip showed after %.1fs: %s", wait - (end - clock()), result.match.item.name)
                     return result
+        if _settle(first):
+            log.info("Scan: best guess %r -> %s (%.0f%%)", first.match.text, first.match.item.name, first.match.score * 100)
         return first
 
     # -- hover price check ------------------------------------------------------
@@ -258,6 +289,16 @@ def _match(d: Decision) -> Optional[Match]:
     if d.item is None:
         return None
     return Match(d.item, d.score, d.text, d.full)
+
+
+def _settle(result: ScanResult) -> bool:
+    """With no match, take the forgiving matcher's guess as the answer."""
+    if result.match is not None or result.guess is None:
+        return False
+    result.match, result.guess = result.guess, None
+    result.match.guess = True
+    result.why += "; best guess from the forgiving matcher"
+    return True
 
 
 def _sure(d: Decision) -> bool:

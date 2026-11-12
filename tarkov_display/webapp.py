@@ -558,7 +558,7 @@ class WebApp:
         if result.match:
             item = result.match.item
             entry.update(item={"id": item.id, "name": item.name, "short": item.short_name},
-                         score=result.match.score, text=result.match.text)
+                         score=result.match.score, text=result.match.text, guess=bool(getattr(result.match, "guess", False)))
         if result.debug_file:
             entry["debugFile"] = str(result.debug_file)
         return entry
@@ -589,6 +589,8 @@ class WebApp:
                 notes = [(label, text, ACCENT) for label, text in needs] or [
                     ("", "Not needed for your open quests or hideout", MUTED)]
             footer = f"Read “{result.match.text}” · {result.match.score:.0%} sure"
+            if getattr(result.match, "guess", False):
+                footer += " · best guess, check the name"
             self.popup.show(item.name, f"{item.short_name}  ·  {size}", rows, notes, footer, result.cursor, seconds)
         elif result.error:
             self.popup.show("Price check failed", "", [], [("", result.error, BAD)], "", result.cursor, seconds)
