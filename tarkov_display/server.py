@@ -256,6 +256,18 @@ class Server:
         def tracker_import(req, m, q, body):
             return ctx.link.tracker_import((body or {}).get("mode"))
 
+        @r("GET", "/api/profile")
+        def profile_state(req, m, q, body):
+            return ctx.profile_state()
+
+        @r("POST", "/api/profile")
+        def profile_change(req, m, q, body):
+            return ctx.profile_change(body)
+
+        @r("POST", "/api/profile/refresh")
+        def profile_refresh(req, m, q, body):
+            return ctx.profile_refresh(force=True)
+
         @r("GET", "/api/lightkeeper")
         def lightkeeper(req, m, q, body):
             return ctx.lightkeeper_state()

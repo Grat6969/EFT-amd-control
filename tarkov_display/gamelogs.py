@@ -51,7 +51,7 @@ SESSION_FOLDER = re.compile(r"^log_(\d{4})\.(\d{1,2})\.(\d{1,2})_(\d{1,2})-(\d{1
 
 @dataclass
 class Event:
-    kind: str                 # "mode" | "matching" | "quest" | "raid" | "raid_end" | "flea"
+    kind: str                 # "mode" | "account" | "matching" | "quest" | "raid" | "raid_end" | "flea"
     time: str                 # "2025-11-20 19:45:12" as written in the log (local time)
     data: Dict = field(default_factory=dict)
     mode: Optional[str] = None  # game mode the event happened in, when known
@@ -206,14 +206,22 @@ def parse_entry(when: str, header: str, body: str) -> Optional[Event]:
         # "scene preset path:maps/customs_preset.bundle rcid:bigmap.scenespreset.asset"
         m = re.search(r"rcid:([A-Za-z0-9_-]+)\.scenespreset", header)
         return Event("matching", when, {"map": m.group(1) if m else None})
+    if "CompleteSelectedProfile ProfileId:" in header:
+        # Your PMC's profile id: a raid on another profile id is a Scav raid.
+        m = re.search(r"ProfileId:\s*([0-9a-f]{24})", header)
+        return Event("account", when, {"profileId": m.group(1)}) if m else None
     if "TRACE-NetworkGameCreate profileStatus" in header:
         loc = re.search(r"Location:\s*([^,'\s]+)", header)
         raid = re.search(r"shortId:\s*([A-Za-z0-9]+)", header)
-        return Event("raid", when, {
+        pid = re.search(r"Profileid:\s*([0-9a-f]{24})", header)
+        data = {
             "map": loc.group(1) if loc else None,
             "online": "RaidMode: Online" in header,
             "raidId": raid.group(1) if raid else None,
-        })
+        }
+        if pid:
+            data["profileId"] = pid.group(1)
+        return Event("raid", when, data)
     if "Got notification | UserMatchOver" in header:
         data = _dict(_json(body))
         return Event("raid_end", when, {"map": data.get("location"), "raidId": data.get("shortId")})
@@ -515,9 +523,13 @@ def read_session(session: Path) -> dict:
     mode: Optional[str] = None
     modes: List[tuple] = []
     queue_since: Optional[str] = None
+    pmc_id: Optional[str] = None
     for path in (p for p in files if "application" in p.name.lower()):
         for when, header, _body in split_entries(_read_head(path, HISTORY_SCAN_BYTES)):
-            if "Session mode:" in header:
+            if "CompleteSelectedProfile ProfileId:" in header:
+                m = re.search(r"ProfileId:\s*([0-9a-f]{24})", header)
+                pmc_id = m.group(1) if m else pmc_id
+            elif "Session mode:" in header:
                 ev = parse_entry(when, header, "")
                 mode = ev.mode if ev else mode
                 modes.append((when, mode))
@@ -525,7 +537,9 @@ def read_session(session: Path) -> dict:
                 queue_since = when
             elif PROFILE_STATUS in header:
                 loc, ip, sid = LOCATION.search(header), SERVER_IP.search(header), SERVER_ID.search(header)
+                pid = re.search(r"Profileid:\s*([0-9a-f]{24})", header)
                 raids.append({
+                    "side": ("PMC" if pid.group(1) == pmc_id else "Scav") if pid and pmc_id else None,
                     "time": when, "map": loc.group(1) if loc else None, "mode": mode,
                     "online": "RaidMode: Online" in header,
                     "ip": ip.group(1) if ip else None, "server": server_name(sid.group(1) if sid else None),

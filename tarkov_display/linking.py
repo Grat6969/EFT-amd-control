@@ -55,6 +55,7 @@ class GameLink:
         self._stores: dict = {}  # tarkov.dev data for the mode the app isn't showing
         self.raid: Optional[dict] = None  # the raid you're in, from the logs (see raid_state)
         self._last_end: Optional[str] = None  # log time of the last raid end reported
+        self.pmc_id: Optional[str] = None  # your PMC's profile id, from the logs
 
     @property
     def cfg(self):
@@ -136,6 +137,7 @@ class GameLink:
         return {
             "enabled": logs.enabled, "path": logs.path, "autoMap": logs.auto_map,
             "refreshAfterRaid": logs.refresh_after_raid, "packCheck": logs.pack_check,
+            "scavMinutes": logs.scav_minutes, "scavStarted": logs.scav_started or None,
             "folder": str(found) if found else None,
             "detected": str(gamelogs.find_logs_folder() or "") or None,
             "session": f.session.name if f and f.session else None,
@@ -164,6 +166,11 @@ class GameLink:
             logs.refresh_after_raid = bool(body["refreshAfterRaid"])
         if "packCheck" in body:
             logs.pack_check = bool(body["packCheck"])
+        if "scavMinutes" in body:
+            try:
+                logs.scav_minutes = max(0, min(120, int(body["scavMinutes"] or 0)))
+            except (TypeError, ValueError):
+                raise ValueError("Scav cooldown must be a number of minutes") from None
         self.web.app.save()
         if restart:
             self.start_logs()
@@ -184,6 +191,16 @@ class GameLink:
     def _handle(self, ev: gamelogs.Event, history: bool) -> None:
         payload = ev.to_dict()
         repeat = False
+        if ev.kind == "account":
+            self.pmc_id = ev.data.get("profileId")
+            return
+        if ev.kind == "raid" and self.pmc_id and ev.data.get("profileId"):
+            payload["scav"] = ev.data["profileId"] != self.pmc_id
+            if payload["scav"]:
+                started = gamelogs._when(ev.time)
+                if started and started.timestamp() > self.cfg.logs.scav_started:
+                    self.cfg.logs.scav_started = started.timestamp()
+                    self.web.app.save()
         if ev.kind == "mode":
             self.game_mode = ev.mode
             if history:
@@ -260,6 +277,14 @@ class GameLink:
         if not repeat:
             self.events.appendleft(payload)
         self.web.publish("gamelog", payload)
+
+    def scav_state(self) -> Optional[dict]:
+        """When your Scav is ready again: counted from your last Scav raid's
+        start (from the logs) plus the cooldown you set."""
+        logs = self.cfg.logs
+        if not logs.scav_minutes or not logs.scav_started:
+            return None
+        return {"readyAt": logs.scav_started + logs.scav_minutes * 60, "minutes": logs.scav_minutes}
 
     def raid_state(self) -> Optional[dict]:
         """The raid you loaded into, until it ends. The logs don't always say
