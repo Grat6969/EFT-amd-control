@@ -256,6 +256,18 @@ class Server:
         def tracker_import(req, m, q, body):
             return ctx.link.tracker_import((body or {}).get("mode"))
 
+        @r("GET", "/api/advisor")
+        def advisor_state(req, m, q, body):
+            return ctx.advisor_state()
+
+        @r("POST", "/api/advisor/export")
+        def advisor_export(req, m, q, body):
+            return ctx.advisor_export()
+
+        @r("POST", "/api/advisor/open")
+        def advisor_open(req, m, q, body):
+            return ctx.advisor_open_folder()
+
         @r("POST", "/api/quit")
         def quit_app(req, m, q, body):
             ctx.quit()

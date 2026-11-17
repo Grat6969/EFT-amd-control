@@ -177,6 +177,7 @@ const ICONS = {
   pin: "M12 17v5M9 3h6l-1 6 4 4v2H6v-2l4-4z",
   raid: "M12 22s7-6.3 7-12a7 7 0 0 0-14 0c0 5.7 7 12 7 12zM12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
   trend: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  spark: "M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3 3M15.4 15.4l3 3M5.6 18.4l3-3M15.4 8.6l3-3",
 };
 
 export function icon(name, size = 18, cls = "") {

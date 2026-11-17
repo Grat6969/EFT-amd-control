@@ -31,13 +31,45 @@ DEFAULT = {
     "achievements": [],        # unlocked achievement ids
     "pinned": [],              # quest ids picked for the next raid
     "objectives": {},          # objective id -> how far along (count done; 1 = done)
+    # For the "Ask Claude" export: what you usually take into raid and what you're after.
+    "advisor": {"kit": "", "roubles": 0, "goal": "", "notes": ""},
 }
+
+KITS = ("", "budget", "mid", "geared", "meta")
+TEXT_LIMITS = {"goal": 200, "notes": 1000}
 
 LIMITS = {"player_level": (1, 79), "intel_center": (0, 3), "hideout_management": (0, 51)}
 
 
 class ProgressError(ValueError):
     pass
+
+
+def _advisor(data, base: dict, strict: bool = False) -> dict:
+    """The advisor settings in ``data`` laid over ``base``."""
+    out = dict(base)
+    if not isinstance(data, dict):
+        if strict:
+            raise ProgressError("bad request")
+        return out
+    if "kit" in data:
+        if data["kit"] in KITS:
+            out["kit"] = data["kit"]
+        elif strict:
+            raise ProgressError("unknown kit")
+    if "roubles" in data:
+        try:
+            out["roubles"] = _int(data["roubles"], 0, 10_000_000_000)
+        except ProgressError:
+            if strict:
+                raise
+    for key, limit in TEXT_LIMITS.items():
+        if key in data:
+            if isinstance(data[key], str):
+                out[key] = data[key].strip()[:limit]
+            elif strict:
+                raise ProgressError(f"{key} must be text")
+    return out
 
 
 def _int(value, lo: int, hi: int) -> int:
@@ -78,6 +110,7 @@ def _clean(data: dict) -> dict:
                 k: _int(v, 0, hi) for k, v in values.items()
                 if isinstance(k, str) and ID.match(k) and isinstance(v, (int, float)) and math.isfinite(v) and v > 0
             }
+    out["advisor"] = _advisor(data.get("advisor"), out["advisor"])
     return out
 
 
@@ -163,6 +196,8 @@ class Progress:
                     if op["faction"] not in ("USEC", "BEAR"):
                         raise ProgressError("faction must be USEC or BEAR")
                     d["faction"] = op["faction"]
+            elif kind == "advisor":
+                d["advisor"] = _advisor(op.get("settings"), d.get("advisor") or DEFAULT["advisor"], strict=True)
             elif kind == "reset":
                 what = op.get("what")
                 if what == "all":

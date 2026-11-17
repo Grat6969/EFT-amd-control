@@ -6,8 +6,11 @@ logs as they grow, and turns a few kinds of lines into events:
 
   * session mode (PvP / PvE)
   * quest started / failed / finished
-  * loading into a raid (which map)
+  * loading into a raid (which map) and leaving it
   * a flea market item sold
+
+It can also read every session still on disk for a short raid history
+(map, time, queue, length, ping) for the "Ask Claude" export.
 
 It only ever opens the log files for reading. It never touches the game's
 memory, process or other files.
@@ -41,7 +44,8 @@ MODES = {"regular": "regular", "pvp": "regular", "pve": "pve", "pvpseason": "sea
 
 # "2025-11-20 19:45:12.345 +01:00|1.0.0.1.39390|Info|application|Session mode: Regular"
 HEADER = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.\d+)?(?: [+-]\d{2}:\d{2})?\|(.*)$")
-LOG_FILE = re.compile(r"(application|notifications)(?:_\d+)?\.log$", re.IGNORECASE)
+LOG_FILE = re.compile(r"(application|notifications|network-connection)(?:_\d+)?\.log$", re.IGNORECASE)
+STATS = re.compile(r"Statistics \(address:\s*([0-9.]+):\d+,\s*rtt:\s*([0-9.]+),\s*lose:\s*(\d+)")
 SESSION_FOLDER = re.compile(r"^log_(\d{4})\.(\d{1,2})\.(\d{1,2})_(\d{1,2})-(\d{1,2})-(\d{1,2})")
 
 
@@ -208,6 +212,15 @@ def parse_entry(when: str, header: str, body: str) -> Optional[Event]:
     if "Got notification | UserMatchOver" in header:
         data = _dict(_json(body))
         return Event("raid_end", when, {"map": data.get("location"), "raidId": data.get("shortId")})
+    if "network-connection|" in header and "Statistics (address:" in header:
+        # Written once when the game drops its connection to a raid server: the
+        # one sign of a raid ending that's there every time (the game often
+        # doesn't send UserMatchOver).
+        m = STATS.search(header)
+        data = {"map": None, "raidId": None}
+        if m:
+            data.update(ping=round(float(m.group(2))), loss=int(m.group(3)))
+        return Event("raid_end", when, data)
     if "Got notification | ChatMessageReceived" in header:
         message = _dict(_dict(_json(body)).get("message"))
         kind = message.get("type")
@@ -442,3 +455,126 @@ def default_folder(custom: str = "") -> Optional[Path]:
             return path.parent
         return logs_folder_in(path) or path
     return find_logs_folder()
+
+
+# -- raid history (for the "Ask Claude" export) ----------------------------------------------
+
+PROFILE_STATUS = "TRACE-NetworkGameCreate profileStatus"
+LOCATION = re.compile(r"Location:\s*([^,'\s]+)")
+SERVER_IP = re.compile(r"\bIp:\s*([0-9.]+)")
+SERVER_ID = re.compile(r"\bSid:\s*([a-z]{2,3}-[a-z]{3}\d{2})", re.IGNORECASE)
+HISTORY_SCAN_BYTES = 16 * 1024 * 1024
+# Battlestate's raid server names start with a region and city code.
+SERVER_CITIES = {
+    "ash": "Ashburn", "atl": "Atlanta", "chi": "Chicago", "dal": "Dallas", "den": "Denver", "lax": "Los Angeles",
+    "mia": "Miami", "nyc": "New York", "sea": "Seattle", "sjc": "San Jose", "stl": "St. Louis", "phx": "Phoenix",
+    "mtl": "Montreal", "tor": "Toronto", "fra": "Frankfurt", "ams": "Amsterdam", "lon": "London", "par": "Paris",
+    "waw": "Warsaw", "sto": "Stockholm", "mad": "Madrid", "mil": "Milan", "hel": "Helsinki", "sin": "Singapore",
+    "tok": "Tokyo", "syd": "Sydney", "hkg": "Hong Kong", "sao": "Sao Paulo",
+}
+
+
+def server_name(sid: Optional[str]) -> Optional[str]:
+    """"us-stl01" -> "St. Louis (us-stl01)"."""
+    if not sid:
+        return None
+    city = SERVER_CITIES.get(sid.split("-")[1][:3].lower()) if "-" in sid else None
+    return f"{city} ({sid})" if city else sid
+
+
+def _when(text: str):
+    from datetime import datetime
+
+    try:
+        return datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def _seconds(start: str, end: str) -> Optional[int]:
+    a, b = _when(start), _when(end)
+    if not a or not b or b < a:
+        return None
+    return int((b - a).total_seconds())
+
+
+def read_session(session: Path) -> dict:
+    """Raids, flea sales and quest changes in one session folder."""
+    raids: List[dict] = []
+    sales: List[dict] = []
+    quests: List[dict] = []
+    files = log_files(session)
+    mode: Optional[str] = None
+    modes: List[tuple] = []
+    queue_since: Optional[str] = None
+    for path in (p for p in files if "application" in p.name.lower()):
+        for when, header, _body in split_entries(_read_head(path, HISTORY_SCAN_BYTES)):
+            if "Session mode:" in header:
+                ev = parse_entry(when, header, "")
+                mode = ev.mode if ev else mode
+                modes.append((when, mode))
+            elif "Matching with group id" in header:
+                queue_since = when
+            elif PROFILE_STATUS in header:
+                loc, ip, sid = LOCATION.search(header), SERVER_IP.search(header), SERVER_ID.search(header)
+                raids.append({
+                    "time": when, "map": loc.group(1) if loc else None, "mode": mode,
+                    "online": "RaidMode: Online" in header,
+                    "ip": ip.group(1) if ip else None, "server": server_name(sid.group(1) if sid else None),
+                    "queue": _seconds(queue_since, when) if queue_since else None,
+                    "started": None, "end": None, "ping": None, "loss": None,
+                })
+                queue_since = None
+            elif header.split("|")[-1].startswith("GameStarted:") and raids and not raids[-1]["started"]:
+                raids[-1]["started"] = when
+    for path in (p for p in files if "network-connection" in p.name.lower()):
+        for when, header, _body in split_entries(_read_head(path, HISTORY_SCAN_BYTES)):
+            m = STATS.search(header)
+            if not m:
+                continue
+            for raid in reversed(raids):  # the raid on that server that hasn't ended yet
+                if raid["end"] is None and raid["time"] <= when and (raid["ip"] in (None, m.group(1))):
+                    raid.update(end=when, ping=round(float(m.group(2))), loss=int(m.group(3)))
+                    break
+    for path in (p for p in files if "notifications" in p.name.lower()):
+        for ev in parse_text(_read_head(path, HISTORY_SCAN_BYTES)):
+            earlier = [md for t, md in modes if t <= ev.time]
+            ev.mode = earlier[-1] if earlier else mode
+            if ev.kind == "raid_end":
+                for raid in reversed(raids):
+                    if raid["end"] is None and raid["time"] <= ev.time:
+                        raid["end"] = ev.time
+                        break
+            elif ev.kind == "flea":
+                sales.append(ev.to_dict())
+            elif ev.kind == "quest":
+                quests.append(ev.to_dict())
+    for raid in raids:
+        start = raid["started"] or raid["time"]
+        length = _seconds(start, raid["end"]) if raid["end"] else None
+        raid["minutes"] = round(length / 60) if length is not None and length < 4 * 3600 else None
+        raid.pop("ip", None)
+    return {"raids": raids, "sales": sales, "quests": quests}
+
+
+def recent_history(folder: Path, sessions: int = 15, raids: int = 25) -> dict:
+    """Recent raids (newest first), flea sales and quest changes from the
+    last few game sessions on disk, plus the game version they were made with."""
+    out = {"raids": [], "sales": [], "quests": [], "gameVersion": None, "sessions": 0}
+    folders = session_folders(folder)[-sessions:]
+    for session in folders:
+        try:
+            found = read_session(session)
+        except Exception:  # one unreadable session mustn't lose the others
+            log.debug("couldn't read %s", session, exc_info=True)
+            continue
+        out["sessions"] += 1
+        for key in ("raids", "sales", "quests"):
+            out[key].extend(found[key])
+    if folders:
+        m = re.search(r"_(\d+(?:\.\d+){3,4})$", folders[-1].name)
+        out["gameVersion"] = m.group(1) if m else None
+    for key in ("raids", "sales", "quests"):
+        out[key].sort(key=lambda e: e.get("time") or "", reverse=True)
+    out["raids"] = out["raids"][:raids]
+    return out

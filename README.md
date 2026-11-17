@@ -102,6 +102,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Barters** | Every trader barter with cost, value and profit at today's prices |
 | **Crafts** | Hideout crafts ranked by profit per hour; filter to stations you've built |
 | **Ammo** | Damage vs penetration chart per caliber, full stats, a rough armor-class guide, prices |
+| **Ask Claude** | Saves your progress (open quests by map, keys, hideout, recent raids, flea sales, your kit and goal) to one file you drop into a Claude chat for a "what next" plan. See [Ask Claude](#ask-claude) |
 | **Quests** | All quests with objectives, rewards and prerequisites, and how and where to do each objective. Filter by available / locked / done / pinned, trader, map, Kappa or Lightkeeper. Pin quests for your next raid. Marking a quest done also marks every quest before it (with Undo) |
 | **Raid plan** | The quests you pinned, for the map you're going to: keys and items to take, what to look for, each objective's how and where with a tick box or counter, and other quests you could do on that map |
 | **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
@@ -195,6 +196,24 @@ in a lot of your history in one go.
 
 The app only opens these log files to read them. It never reads or changes the game's
 memory, process or any other file.
+
+### Ask Claude
+
+The **Ask Claude** page saves one Markdown file with everything the app knows about where
+you are: your level, open quests grouped by map (unfinished objectives only), the keys
+those quests use and which ones you have, items you've set aside, each hideout station's
+next level, quests unlocking soon, your recent raids from the game logs (map, queue time,
+length, ping, server), recent flea sales, and each map's bosses. Add what you usually take
+into raid, your roubles and your goal on the same page.
+
+Drop the file into a chat on claude.ai (with one or two stash screenshots if you like).
+The file starts with instructions asking Claude to check current Reddit and wiki advice
+and suggest a map, a route, what to bring and what to work on next. Nothing is sent
+anywhere by the app and no API key is needed. Files go to `Documents\RaidReady exports`;
+the newest 20 are kept.
+
+The logs don't say whether you survived a raid, what you looted or what's in your stash:
+Tarkov writes its server's answers to the log without their contents.
 
 ### TarkovTracker
 

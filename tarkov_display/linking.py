@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 GAME_MODES = ("regular", "pve")
 MODE_NAMES = {"regular": "PvP", "pve": "PvE", "seasonal": "seasonal"}
 RAID_MAX = 2 * 3600  # seconds after loading in that a raid counts as over even if the logs never said so
+END_GAP = 180        # a raid's end shows up twice (connection closed, then UserMatchOver): count it once
 
 
 def prerequisite_ids(task_id: str, tasks: Optional[List[dict]]) -> List[str]:
@@ -53,6 +54,7 @@ class GameLink:
         self.lock = threading.Lock()  # held while progress is written and while the app switches mode
         self._stores: dict = {}  # tarkov.dev data for the mode the app isn't showing
         self.raid: Optional[dict] = None  # the raid you're in, from the logs (see raid_state)
+        self._last_end: Optional[str] = None  # log time of the last raid end reported
 
     @property
     def cfg(self):
@@ -166,6 +168,7 @@ class GameLink:
 
     def _handle(self, ev: gamelogs.Event, history: bool) -> None:
         payload = ev.to_dict()
+        repeat = False
         if ev.kind == "mode":
             self.game_mode = ev.mode
             if history:
@@ -187,7 +190,16 @@ class GameLink:
         elif ev.kind in ("raid", "raid_end"):
             if history:
                 return
-            for m in self.data_for(ev.mode or self.cfg.game_mode, "maps", fetch=True) or []:
+            if ev.kind == "raid_end":
+                gap = gamelogs._seconds(self._last_end, ev.time) if self._last_end else None
+                # The same raid's end read from the other log: still sent to the
+                # window, but listed once.
+                repeat = gap is not None and gap < END_GAP and self.raid is None
+                self._last_end = ev.time
+                if not ev.data.get("map") and self.raid:  # the connection log doesn't name the map
+                    payload["map"] = self.raid.get("map")
+                    ev = gamelogs.Event(ev.kind, ev.time, dict(ev.data, map=payload["map"]), ev.mode)
+            for m in (self.data_for(ev.mode or self.cfg.game_mode, "maps", fetch=True) or []) if ev.data.get("map") else []:
                 if (m.get("nameId") or "").lower() == (ev.data.get("map") or "").lower():
                     payload.update(name=m["name"], normalizedName=m["normalizedName"], mapId=m.get("id"))
                     break
@@ -203,7 +215,8 @@ class GameLink:
                 return
             item = next((i for i in self.web.app.prices.items if i.id == ev.data.get("itemId")), None)
             payload["name"] = item.name if item else None
-        self.events.appendleft(payload)
+        if not repeat:
+            self.events.appendleft(payload)
         self.web.publish("gamelog", payload)
 
     def raid_state(self) -> Optional[dict]:

@@ -1,0 +1,172 @@
+"""The "Ask Claude" export and the raid history it reads from the game logs."""
+
+import json
+from datetime import datetime
+
+import pytest
+
+from tarkov_display import advisor, gamelogs
+from tarkov_display.progress import Progress, ProgressError
+
+VERSION = "1.3.0.2.48779"
+
+
+def line(t, kind, msg, day="2026-11-17"):
+    return f"{day} {t}.100|{VERSION}|Info|{kind}|{msg}\n"
+
+
+def status(t, loc, ip, sid):
+    return line(t, "application", f"TRACE-NetworkGameCreate profileStatus: 'Profileid: p1, Status: Busy, RaidMode: Online, "
+                                  f"Ip: {ip}, Port: 17008, Location: {loc}, Sid: {sid}lgs022_6afc952d_17.11.26_20-55-57, "
+                                  "GameMode: deathmatch, shortId: 9R475L'")
+
+
+def stats(t, ip, rtt="56.125", lose="0"):
+    return line(t, "network-connection", f"Statistics (address: {ip}:17008, rtt: {rtt}, lose: {lose}, sent: 1, received: 2)")
+
+
+def write_session(folder, name, app="", net="", notes=""):
+    session = folder / f"log_{name}_{VERSION}"
+    session.mkdir(parents=True)
+    stamp = f"{name}_{VERSION}"
+    (session / f"{stamp} application_000.log").write_text(app, encoding="utf-8")
+    (session / f"{stamp} network-connection_000.log").write_text(net, encoding="utf-8")
+    (session / f"{stamp} push-notifications_000.log").write_text(notes, encoding="utf-8")
+    return session
+
+
+def sold(t, item, roubles):
+    payload = {"type": "new_message", "message": {"type": 4, "templateId": "5bdabfb886f7743e152e867e 0",
+               "systemData": {"buyerNickname": "x", "soldItem": item, "itemCount": 1},
+               "items": {"data": [{"_tpl": "5449016a4bdc2d6f028b456f", "upd": {"StackObjectsCount": roubles}}]}}}
+    return line(t, "push-notifications", "Got notification | ChatMessageReceived") + json.dumps(payload, indent=2) + "\n"
+
+
+def test_raid_history_from_logs(tmp_path):
+    app = (line("12:52:16", "application", "Session mode: Regular")
+           + line("13:01:28", "application", "Matching with group id: 967734")
+           + status("13:01:53", "bigmap", "148.72.174.198", "us-stl01")
+           + line("13:02:49", "application", "GameStarted:65.26(10.62) real:80.39(12.05) diff:15.12")
+           + line("13:21:53", "application", "Matching with group id: 967734")
+           + status("13:23:16", "Shoreline", "37.19.207.99", "us-ash02")
+           + line("13:24:18", "application", "GameStarted:1 real:1 diff:1")
+           + status("14:22:03", "Woods", "1.1.1.1", "zz-qqq01"))  # still in it: no end yet
+    net = stats("13:13:21", "148.72.174.198") + stats("13:37:54", "37.19.207.99", "41.25", "3")
+    notes = sold("13:45:21", "itemA", 24420) + sold("14:14:34", "itemB", 40420)
+    write_session(tmp_path, "2026.11.17_12-52-07", app, net, notes)
+    write_session(tmp_path, "2026.11.16_9-00-00")  # an older, empty session
+    (tmp_path / "not a session").mkdir()
+
+    h = gamelogs.recent_history(tmp_path)
+    assert h["gameVersion"] == VERSION and h["sessions"] == 2
+    woods, shore, customs = h["raids"]
+    assert customs == {"time": "2026-11-17 13:01:53", "map": "bigmap", "mode": "regular", "online": True,
+                       "server": "St. Louis (us-stl01)", "queue": 25, "started": "2026-11-17 13:02:49",
+                       "end": "2026-11-17 13:13:21", "ping": 56, "loss": 0, "minutes": 11}
+    assert (shore["server"], shore["ping"], shore["loss"], shore["minutes"], shore["queue"]) == ("Ashburn (us-ash02)", 41, 3, 14, 83)
+    assert woods["end"] is None and woods["minutes"] is None and woods["server"] == "zz-qqq01"
+    assert [s["itemId"] for s in h["sales"]] == ["itemB", "itemA"] and h["sales"][0]["roubles"] == 40420
+
+
+def test_leaving_a_raid_is_read_from_the_connection_log():
+    events = gamelogs.parse_text(stats("13:13:21", "148.72.174.198", "52.6"))
+    assert [(e.kind, e.data) for e in events] == [("raid_end", {"map": None, "raidId": None, "ping": 53, "loss": 0})]
+    assert gamelogs.LOG_FILE.search("2026.11.17_12-52-07_1.3.0.2.48779 network-connection_000.log")
+
+
+def test_advisor_settings_are_checked():
+    p = Progress(None)
+    snap = p.apply({"op": "advisor", "settings": {"kit": "mid", "roubles": "2500000", "goal": "  Kappa  ", "notes": "x" * 5000}})
+    assert snap["advisor"] == {"kit": "mid", "roubles": 2500000, "goal": "Kappa", "notes": "x" * 1000}
+    for bad in ({"kit": "op"}, {"roubles": "lots"}, {"goal": 5}, None):
+        with pytest.raises(ProgressError):
+            p.apply({"op": "advisor", "settings": bad})
+    assert p.snapshot()["advisor"]["kit"] == "mid"
+    # Hand-edited or imported files are cleaned, not refused.
+    p.apply({"op": "import", "data": {"advisor": {"kit": "op", "roubles": -5, "goal": ["x"]}}})
+    assert p.snapshot()["advisor"] == {"kit": "", "roubles": 0, "goal": "", "notes": ""}
+
+
+def demo_data():
+    from tests import demo
+
+    return demo.QUESTS, demo.STATIONS, demo.MAPS
+
+
+def test_open_quests_by_map_and_keys():
+    tasks, _, maps = demo_data()
+    aquarius = next(t for t in tasks if t["name"] == "Operation Aquarius - Part 1")
+    prereqs = [r["task"]["id"] for r in aquarius["taskRequirements"]]
+    progress = {"player_level": 20, "faction": "USEC", "tasks": prereqs, "owned": {}, "objectives": {}, "pinned": [aquarius["id"]]}
+    from tarkov_display.linking import prerequisite_ids
+
+    progress["tasks"] = list({x for p in prereqs for x in [p, *prerequisite_ids(p, tasks)]})
+    found = advisor.open_quests(tasks, progress, maps)
+    assert any(e["task"]["id"] == aquarius["id"] for e in found["groups"]["Customs"])
+    dorm = next(k for k in found["keys"] if k["name"] == "Dorm room 206 key")
+    assert dorm["have"] is False and "Operation Aquarius - Part 1" in dorm["quests"] and dorm["maps"] == ["Customs"]
+    progress["owned"] = {dorm["id"]: 1}
+    assert next(k for k in advisor.open_quests(tasks, progress, maps)["keys"] if k["id"] == dorm["id"])["have"] is True
+    # Done objectives drop out; with none left the quest is ready to turn in.
+    progress["objectives"] = {o["id"]: o.get("count") or 1 for o in aquarius["objectives"]}
+    found = advisor.open_quests(tasks, progress, maps)
+    assert any(e["task"]["id"] == aquarius["id"] for e in found["groups"]["Ready to turn in"])
+    assert not any(e["task"]["id"] == aquarius["id"] for e in found["groups"].get("Customs", []))
+
+
+def test_export_text(tmp_path):
+    tasks, stations, maps = demo_data()
+    progress = {"player_level": 12, "faction": "BEAR", "tasks": [], "owned": {}, "objectives": {}, "pinned": [],
+                "hideout": {}, "advisor": {"kit": "budget", "roubles": 1200000, "goal": "Unlock flea", "notes": "Duo with a friend"}}
+    history = {"gameVersion": VERSION, "raids": [{"time": "2026-11-17 13:01:53", "map": "bigmap", "mode": "regular", "online": True,
+                                                  "server": "St. Louis (us-stl01)", "queue": 25, "minutes": 11, "ping": 56, "loss": 0}],
+               "sales": [{"time": "2026-11-17 14:14:34", "itemId": "i1", "count": 1, "roubles": 40420}]}
+    text = advisor.build(progress=progress, tasks=tasks, stations=stations, maps=maps, history=history,
+                         item_names={"i1": "Graphics card"}, app_version="9.9", now=datetime(2026, 11, 17, 17, 0))
+    assert text.startswith("# RaidReady export for Claude")
+    assert "search current Reddit" in text and "_Exported 2026-11-17 17:00 from RaidReady 9.9, game 1.3.0.2.48779._" in text
+    for part in ("Level 12, BEAR", "Budget (", "1,200,000 ₽", "Goal: Unlock flea", "Notes: Duo with a friend",
+                 "## Open quests by map", "### Customs", "## Keys my open quests use", "## Hideout: next level",
+                 "| 11-17 13:01 | Customs | PvP | 25 s | 11 min | 56 ms | St. Louis (us-stl01) |",
+                 "Graphics card for 40,420 ₽", "**Customs**: 8-12 players"):
+        assert part in text, part
+    # No data yet: still a usable file.
+    bare = advisor.build(progress={"player_level": 1}, tasks=None, stations=None, maps=None)
+    assert "hadn't downloaded" in bare and "## Me" in bare
+
+    path = advisor.save(text, tmp_path, datetime(2026, 11, 17, 17, 0))
+    assert path.name == "raidready-2026-11-17_1700.md" and path.read_text(encoding="utf-8") == text
+    for n in range(25):
+        advisor.save("x", tmp_path, datetime(2026, 11, 1 + n, 9, 0))
+    (tmp_path / "mine.md").write_text("keep")
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert len([n for n in names if n.startswith("raidready-")]) == advisor.KEEP_EXPORTS and "mine.md" in names
+
+
+def test_export_api(webapp, monkeypatch, tmp_path):
+    from tests.test_server import body, call
+
+    monkeypatch.setattr(advisor, "export_folder", lambda: tmp_path / "exports")
+    s = webapp.server
+    state = body(call(s, "/api/advisor"))
+    assert state["tasksLoaded"] and state["available"] > 0 and state["settings"]["kit"] == ""
+    assert body(call(s, "/api/progress", "POST", {"op": "advisor", "settings": {"kit": "geared"}}))["advisor"]["kit"] == "geared"
+    result = body(call(s, "/api/advisor/export", "POST"))
+    assert result["name"].startswith("raidready-") and "Geared (" in result["text"]
+    assert (tmp_path / "exports" / result["name"]).read_text(encoding="utf-8") == result["text"]
+    assert body(call(s, "/api/advisor/open", "POST"))["folder"] == str(tmp_path / "exports")
+
+
+def test_raid_end_from_both_logs_is_listed_once(webapp, monkeypatch):
+    monkeypatch.setattr(webapp, "refresh_after_raid", lambda: False)
+    link = webapp.link
+    link._on_event(gamelogs.Event("raid", "2026-11-17 13:01:53", {"map": "bigmap", "online": True, "raidId": "9R475L"}), False)
+    link._on_event(gamelogs.Event("raid_end", "2026-11-17 13:13:21", {"map": None, "raidId": None, "ping": 56, "loss": 0}), False)
+    assert webapp.state()["raid"] is None
+    link._on_event(gamelogs.Event("raid_end", "2026-11-17 13:13:22", {"map": "bigmap", "raidId": "9R475L"}), False)
+    ends = [e for e in link.events if e["kind"] == "raid_end"]
+    assert len(ends) == 1 and ends[0]["name"] == "Customs" and ends[0]["ping"] == 56
+    # The next raid's end is listed again.
+    link._on_event(gamelogs.Event("raid", "2026-11-17 13:23:16", {"map": "Shoreline", "online": True}), False)
+    link._on_event(gamelogs.Event("raid_end", "2026-11-17 13:37:54", {"map": None, "raidId": None}), False)
+    assert len([e for e in link.events if e["kind"] == "raid_end"]) == 2

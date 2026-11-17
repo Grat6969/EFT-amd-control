@@ -7,7 +7,7 @@ import { onGameEvent } from "./link.js";
 import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, setPricewatch, store } from "./store.js";
 
 const NAV = [
-  ["Overview", [["home", "Home", "home"]]],
+  ["Overview", [["home", "Home", "home"], ["advisor", "Ask Claude", "spark"]]],
   ["Market", [["items", "Prices", "items"], ["pricewatch", "Price watch", "trend"], ["barters", "Barters", "barters"], ["crafts", "Crafts", "crafts"], ["ammo", "Ammo", "ammo"]]],
   ["Progress", [["quests", "Quests", "quests"], ["raid", "Raid plan", "raid"], ["hideout", "Hideout", "hideout"], ["needed", "Needed items", "needed"], ["achievements", "Achievements", "achievements"]]],
   ["World", [["maps", "Maps", "maps"], ["bosses", "Bosses", "bosses"], ["traders", "Traders", "traders"]]],
