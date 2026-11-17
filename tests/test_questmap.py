@@ -260,3 +260,27 @@ def test_picture_fraction_is_linear():
     p = Picture(10, 20, 100, 50)
     entry = {"transform": [1, 0, 1, 0], "rotation": 0}
     assert p.fraction(entry, 60, -45) == (0.5, 0.5)  # y grows down: z = -45 is 45 px down
+
+
+def test_places_and_you():
+    maps = [{"id": "customs-id", "name": "Customs", "normalizedName": "customs",
+             "extracts": [{"name": "Dorms V-Ex", "faction": "pmc", "position": {"x": 200, "y": 1, "z": 150}},
+                          {"name": "Far away", "faction": "pmc", "position": {"x": 99999, "y": 0, "z": 99999}},
+                          {"name": "No position", "faction": "scav"}],
+             "transits": [{"description": "To Shoreline", "position": {"x": 120, "y": 0, "z": -100}}],
+             "locks": [{"key": {"id": "k1", "name": "Dorm room 314 marked key"}, "position": {"x": 205, "y": 4.5, "z": 155}}],
+             "spawns": [{"zoneName": "Crossroads", "sides": ["Pmc"], "categories": ["Player"], "position": {"x": 290, "y": 1, "z": -40}},
+                        {"zoneName": "Bot zone", "sides": ["Savage"], "categories": ["Bot"], "position": {"x": 290, "y": 1, "z": -40}}]}]
+    images = {"customs": {"quest": CUSTOMS}}
+
+    class Fake:
+        def get(self, url, layer):
+            return b"<svg/>", CUSTOMS_VIEW
+
+    out = build(maps, [], images, "customs", Fake(), wanted_exits=["dorms v-ex"], position={"x": 200, "y": 1, "z": 150, "time": 5})
+    kinds = sorted((p["kind"], p["name"]) for p in out["places"])
+    assert kinds == [("extract", "Dorms V-Ex"), ("lock", "Dorm room 314 marked key"), ("spawn", "Crossroads"), ("transit", "To Shoreline")]
+    ex = next(p for p in out["places"] if p["kind"] == "extract")
+    assert ex["quest"] is True and 0 <= ex["x"] <= 1 and 0 <= ex["y"] <= 1
+    assert out["you"]["x"] == ex["x"] and out["you"]["y"] == ex["y"] and out["you"]["time"] == 5
+    assert build(maps, [], images, "customs", Fake(), position={"x": 99999, "z": 99999})["you"] is None

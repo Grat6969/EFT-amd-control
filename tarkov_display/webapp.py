@@ -86,6 +86,7 @@ class WebApp:
         self._watch_version = 0     # goes up whenever a check starts or ends (see pricewatch_state)
         self.link = GameLink(self)
         self.profiles = playerprofile.ProfileStore(self.cfg_dir)
+        self.position: Optional[dict] = None  # from your last in-raid screenshot (see screenshots.py)
         self.profile_status: dict = {"running": False, "error": None}
         self.server = self._bind(port or cfg.port, restarted)
 
@@ -210,9 +211,22 @@ class WebApp:
         return self.store.get(name, wait)
 
     def quest_map(self, name: str) -> dict:
-        """Quest markers for one map, placed on tarkov.dev's drawing of it."""
+        """Quest markers for one map, placed on tarkov.dev's drawing of it,
+        plus extracts, transits, doors, spawns and where you last were."""
         data = {n: self.store.get(n, 30)["data"] for n in ("maps", "tasks", "mapimages")}
-        return questmap.build(data["maps"], data["tasks"], data["mapimages"], name, self.drawings)
+        done = set(self.progress.snapshot()["tasks"])
+        exits = {o.get("exitName") for t in data["tasks"] or [] if t.get("id") not in done
+                 for o in t.get("objectives") or [] if o.get("type") == "extract" and o.get("exitName")}
+        # Extract objectives that name an exit only in the text ("... through Bridge V-Ex").
+        for t in data["tasks"] or []:
+            if t.get("id") in done:
+                continue
+            for o in t.get("objectives") or []:
+                text = o.get("description") or ""
+                if o.get("type") == "extract" and " through " in text:
+                    exits.add(text.split(" through ", 1)[1].strip().rstrip("."))
+        pos = self.position if self.position and self.position.get("map") == name else None
+        return questmap.build(data["maps"], data["tasks"], data["mapimages"], name, self.drawings, exits, pos)
 
     def map_drawing(self, key: str) -> Raw:
         entry = questmap.find_drawing(self.store.get("mapimages", 30)["data"], key)
@@ -432,6 +446,20 @@ class WebApp:
             if new:
                 snap = self.progress.apply({"op": "achievements", "ids": new, "done": True})
             self.publish("progress", snap)
+
+    # -- Claude Desktop (see mcp.py) --------------------------------------
+
+    def claude_desktop_state(self) -> dict:
+        from . import mcp
+
+        return mcp.claude_desktop_status()
+
+    def claude_desktop_install(self) -> dict:
+        from . import mcp
+
+        result = mcp.install_claude_desktop()
+        log.info("Added RaidReady to Claude Desktop's config at %s", result["path"])
+        return dict(mcp.claude_desktop_status(), installedNow=True)
 
     def lightkeeper_state(self) -> dict:
         return {"checklist": advisor.lightkeeper_checklist(self.store.get("tasks", 20)["data"],

@@ -144,11 +144,34 @@ export default {
           "Tarkov's log folder wasn't found, so the export won't include your recent raids. Set it in Settings → Game log reader."));
     };
 
+    // -- or: Claude Desktop reads it directly ---------------------------------------
+    const desktopBox = h("div");
+    const drawDesktop = async () => {
+      let st;
+      try { st = await api("claude"); } catch (e) { mount(desktopBox, h("div.muted", e.message)); return; }
+      mount(desktopBox,
+        h("p.muted.small", { style: { margin: "0 0 10px" } },
+          "Using the Claude Desktop app? RaidReady can plug into it, so you can just ask Claude \u201cwhat should I run next?\u201d ",
+          "and it reads your quests, keys, story, raids and prices itself: no file to export. It only reads what RaidReady has saved on this PC, and works with the RaidReady window closed."),
+        st.installed
+          ? h("div.note", icon("check", 16), h("div", h("strong", "RaidReady is added to Claude Desktop. "),
+            "Restart Claude Desktop if you just added it, then ask it about your raids. Its tools start with \u201craidready_\u201d."))
+          : h("div.toolbar",
+            button("Add RaidReady to Claude Desktop", async () => {
+              if (!confirm("Add RaidReady to Claude Desktop's settings? The old settings file is kept as a .bak copy.")) return;
+              try { await api("claude/install", { method: "POST", body: {} }); toast("Added. Restart Claude Desktop to use it.", { kind: "good", timeout: 10000 }); drawDesktop(); }
+              catch (e) { toast(e.message, { kind: "bad", timeout: 10000 }); }
+            }, { kind: "primary", iconName: "plus" }),
+            st.claudeFound ? null : h("span.muted.small", "Claude Desktop doesn't seem to be installed yet; this still works once it is.")),
+        h("div.muted.small", { style: { marginTop: "8px" } }, `Settings file: ${st.path}`));
+    };
+
     mount(root, summary,
       card("1 · Your kit and goal", kitBox, { sub: "saved as you type" }),
       card("2 · Keys your open quests use", keysBox, { sub: "tick the ones in your stash" }),
-      card("3 · Export", exportBox, { sub: "nothing is sent anywhere; you choose where the file goes" }));
-    drawSummary(); drawKit(); drawKeys(); drawExport();
+      card("3 · Export", exportBox, { sub: "nothing is sent anywhere; you choose where the file goes" }),
+      card("Or skip the file: Claude Desktop", desktopBox, { sub: "Claude reads your progress directly" }));
+    drawSummary(); drawKit(); drawKeys(); drawExport(); drawDesktop();
 
     return on((kind) => {
       if (kind !== "progress") return;

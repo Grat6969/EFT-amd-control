@@ -101,6 +101,9 @@ export default {
       else if (kind === "state") {
         const now = JSON.stringify(store.state?.raid || null);
         if (now !== raid) { raid = now; redrawQuests("raid"); }
+      } else if (kind === "position") {
+        questMaps.delete(detail?.map);
+        redrawQuests("data");
       } else if (kind === "data" && ["tasks", "maps", "mapimages"].includes(detail)) {
         questMaps.clear();
         redrawQuests("data");
@@ -272,6 +275,7 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
         const [filter, list] = shown();
         mount(filterBox, icon("quests", 15), select(QUEST_FILTERS, filter, pickFilter));
         view.setQuests(list);
+        view.setPlaces(data.places, data.you);
         drawQuestPanel(panel, m, data, list, filter, view, pickFilter);
       };
       view.onSelect = () => { const [filter, list] = shown(); drawQuestPanel(panel, m, data, list, filter, view, pickFilter); };
@@ -284,6 +288,7 @@ function mapImage(m, all, { popout = false, picker = null, imageKey, quest: ques
         h("span.grow"),
         view.controls,
         popout ? null : button("Pop out", popOut, { iconName: "external", title: "Open this map in its own window" })),
+      data && (data.places?.length || data.you) ? view.layerBar : null,
       view.box,
       panel || (questImage ? h("div.note.quest-hint", icon("info", 16), h("div",
         "Quest markers are on the Quests map: tarkov.dev's drawing of ", m.name, " comes with the game's coordinates, so they land in the right place. ",
@@ -380,7 +385,9 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
   const msg = h("div.viewer-msg", h("span", h("span.spinner"), " Loading map image…"));
   const zones = h("svg.quest-zones", { "aria-hidden": "true" });
   const questLayer = h("div.quest-layer");
+  const placeLayer = h("div.place-layer");
   const layer = h("div.marker-layer");
+  let places = [], you = null;
   const editor = h("div.marker-editor", { hidden: true });
   const info = h("div.quest-info", { hidden: true });
   const loaded = () => size()[0] > 0;
@@ -390,7 +397,7 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
   const local_ = (e) => { const r = box.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
   const place = () => {
-    for (const pin of [...layer.children, ...questLayer.children]) {
+    for (const pin of [...layer.children, ...questLayer.children, ...placeLayer.children]) {
       const [x, y] = toScreen(Number(pin.dataset.x), Number(pin.dataset.y));
       pin.style.transform = `translate(${x}px, ${y}px)`;
     }
@@ -404,7 +411,7 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
 
   const addBtn = button("Add marker", () => setAdding(!adding), { iconName: "plus", title: "Then click the map. Or right-click the map at any time." });
   const labelBtn = button("Labels", () => {
-    labels = !labels; local.set("map.labels", labels); drawPins(); drawQuests(); labelBtn.classList.toggle("on", labels);
+    labels = !labels; local.set("map.labels", labels); drawPins(); drawQuests(); drawPlaces(); labelBtn.classList.toggle("on", labels);
   }, { iconName: "eye", title: "Show notes and quest names next to markers" });
   labelBtn.classList.toggle("on", labels);
   const setAdding = (on) => { adding = on; addBtn.classList.toggle("primary", on); box.classList.toggle("adding", on); };
@@ -421,6 +428,37 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
       return pin;
     }));
     if (editing && !markers.some((mk) => mk.id === editing)) closeEditor({ quiet: true });  // removed elsewhere
+    if (loaded()) place();
+  }
+
+  // -- extracts, transits, locked doors, spawns, BTR stops and you (questmap.places) --
+  const layerOn = local.get("map.layers", { extract: true, transit: true, lock: false, spawn: false, btr: false, you: true });
+  const LAYERS = [["extract", "Extracts", "exit"], ["transit", "Transits", "maps"], ["lock", "Locked doors", "key"],
+    ["spawn", "PMC spawns", "raid"], ["btr", "BTR stops", "signal"], ["you", "You", "pin"]];
+  const layerBar = h("div.place-toggles");
+  function drawLayerBar() {
+    const have = new Set(places.map((p) => p.kind));
+    if (you) have.add("you");
+    mount(layerBar, LAYERS.filter(([k]) => have.has(k)).map(([k, label, ic]) =>
+      h("button.btn.small.ghost" + (layerOn[k] ? ".on" : ""), { type: "button", title: `Show ${label.toLowerCase()} on the map`,
+        onclick: () => { layerOn[k] = !layerOn[k]; local.set("map.layers", layerOn); drawLayerBar(); drawPlaces(); } },
+      icon(ic, 14), h("span", label))));
+  }
+  function drawPlaces() {
+    const shown = places.filter((p) => layerOn[p.kind]);
+    const pins = shown.map((p) => {
+      const tip = [p.name, p.kind === "extract" ? `${p.faction ? p.faction.toUpperCase() + " " : ""}extract${p.quest ? " (an open quest needs it)" : ""}` : null,
+        p.kind === "lock" ? `Key: ${p.name}${p.needsPower ? " (needs power)" : ""}` : null, p.conditions || null,
+        p.sides?.length ? `Spawn: ${p.sides.join(", ")}` : null, p.floor || null].filter(Boolean).join("\n");
+      return h("div.place-pin." + p.kind + (p.quest ? ".quest" : "") + (p.faction ? ".f-" + p.faction.toLowerCase() : ""),
+        { dataset: { x: p.x, y: p.y }, title: tip },
+        h("span.pp-dot"), labels && p.kind !== "spawn" ? h("span.pp-label", p.name) : null);
+    });
+    if (you && layerOn.you) {
+      pins.push(h("div.place-pin.you", { dataset: { x: you.x, y: you.y },
+        title: `You, at your last screenshot${you.floor ? ` (${you.floor})` : ""}` }, h("span.pp-dot"), h("span.pp-label", "You")));
+    }
+    mount(placeLayer, pins);
     if (loaded()) place();
   }
 
@@ -633,7 +671,7 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
     " for tarkov.dev", given.license ? [" · ", h("a", { href: given.license.link, target: "_blank", rel: "noopener noreferrer" }, given.license.name)] : null) : null)
     : image.author ? h("div.viewer-credit", "Map by ",
       image.authorLink ? h("a", { href: image.authorLink, target: "_blank", rel: "noopener noreferrer" }, image.author) : image.author) : null;
-  const box = h("div.viewer" + (popout ? ".tall" : ""), msg, picture, zones, questLayer, layer, editor, info,
+  const box = h("div.viewer" + (popout ? ".tall" : ""), msg, picture, zones, placeLayer, questLayer, layer, editor, info,
     h("div.viewer-tools",
       button("", () => zoom(1.3), { iconName: "zoomin", title: "Zoom in" }),
       button("", () => zoom(1 / 1.3), { iconName: "zoomout", title: "Zoom out" }),
@@ -668,11 +706,12 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
     msg.remove();
     fit();
     drawQuests();
+    drawPlaces();
     pending?.();
     pending = null;
   };
   let pending = null;
-  const inUi = (e) => e.target.closest(".viewer-tools, .viewer-credit, .marker-editor, .marker-pin, .quest-pin, .quest-info");
+  const inUi = (e) => e.target.closest(".viewer-tools, .viewer-credit, .marker-editor, .marker-pin, .quest-pin, .quest-info, .place-pin");
   if (!tiles) {
     picture.addEventListener("load", show);
     picture.addEventListener("error", () => {
@@ -722,8 +761,9 @@ function viewer(image, { popout = false, picture: given = null } = {}) {
   live.add(redraw);
   drawPins();
   return Object.assign(api_, {
-    box, controls: h("div.map-marker-tools", addBtn, labelBtn), focus,
+    box, controls: h("div.map-marker-tools", addBtn, labelBtn), focus, layerBar,
     setQuests(list) { quests = list || []; drawQuests(); },
+    setPlaces(list, me) { places = list || []; you = me || null; drawLayerBar(); drawPlaces(); },
     focusQuest(id) { if (ready) focusQuest(id); else pending = () => focusQuest(id); },
   });
 }

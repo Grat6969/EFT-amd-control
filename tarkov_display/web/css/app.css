@@ -687,3 +687,20 @@ body.popout #app { display: block; }
 /* Tarkov clock in the top bar (main.js) */
 .tclock { font-variant-numeric: tabular-nums; gap: 4px; }
 .tclock .tnight { color: var(--info); }
+
+/* Map layers: extracts, transits, doors, spawns, BTR, you (views/maps.js) */
+.place-toggles { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.place-layer { position: absolute; inset: 0; pointer-events: none; }
+.place-pin { position: absolute; left: 0; top: 0; pointer-events: auto; display: flex; align-items: center; gap: 4px; margin: -7px 0 0 -7px; }
+.place-pin .pp-dot { width: 14px; height: 14px; border-radius: 3px; border: 2px solid #0b0d10; box-shadow: 0 1px 3px rgba(0,0,0,.6); cursor: help; }
+.place-pin .pp-label { font-size: 11px; color: #e8e2d0; text-shadow: 0 1px 2px #000, 0 0 4px #000; white-space: nowrap; pointer-events: none; }
+.place-pin.extract .pp-dot { background: #6fbf73; }
+.place-pin.extract.f-scav .pp-dot { background: #c9b27c; }
+.place-pin.extract.f-shared .pp-dot, .place-pin.extract.f-all .pp-dot { background: #8fd0c8; }
+.place-pin.extract.quest .pp-dot { outline: 3px solid #e36a5e; outline-offset: 1px; }
+.place-pin.transit .pp-dot { background: #66abd8; border-radius: 50%; }
+.place-pin.lock .pp-dot { background: #e3aa52; width: 10px; height: 10px; }
+.place-pin.spawn .pp-dot { background: rgba(255,255,255,.75); width: 9px; height: 9px; border-radius: 50%; }
+.place-pin.btr .pp-dot { background: #9c88d6; }
+.place-pin.you .pp-dot { background: #ff4d6a; border-radius: 50%; width: 16px; height: 16px; animation: you-pulse 1.6s ease-out infinite; }
+@keyframes you-pulse { 0% { box-shadow: 0 0 0 0 rgba(255,77,106,.7); } 100% { box-shadow: 0 0 0 14px rgba(255,77,106,0); } }
