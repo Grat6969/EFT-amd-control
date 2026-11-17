@@ -60,7 +60,7 @@ def test_raid_history_from_logs(tmp_path):
     h = gamelogs.recent_history(tmp_path)
     assert h["gameVersion"] == VERSION and h["sessions"] == 2
     woods, shore, customs = h["raids"]
-    assert customs == {"time": "2026-11-17 13:01:53", "map": "bigmap", "mode": "regular", "online": True,
+    assert customs == {"side": None, "time": "2026-11-17 13:01:53", "map": "bigmap", "mode": "regular", "online": True,
                        "server": "St. Louis (us-stl01)", "queue": 25, "started": "2026-11-17 13:02:49",
                        "end": "2026-11-17 13:13:21", "ping": 56, "loss": 0, "minutes": 11}
     assert (shore["server"], shore["ping"], shore["loss"], shore["minutes"], shore["queue"]) == ("Ashburn (us-ash02)", 41, 3, 14, 83)
@@ -127,7 +127,7 @@ def test_export_text(tmp_path):
     assert "search current Reddit" in text and "_Exported 2026-11-17 17:00 from RaidReady 9.9, game 1.3.0.2.48779._" in text
     for part in ("Level 12, BEAR", "Budget (", "1,200,000 ₽", "Goal: Unlock flea", "Notes: Duo with a friend",
                  "## Open quests by map", "### Customs", "## Keys my open quests use", "## Hideout: next level",
-                 "| 11-17 13:01 | Customs | PvP | 25 s | 11 min | 56 ms | St. Louis (us-stl01) |",
+                 "| 11-17 13:01 | Customs | ? | PvP | 25 s | 11 min | 56 ms | St. Louis (us-stl01) |",
                  "Graphics card for 40,420 ₽", "**Customs**: 8-12 players"):
         assert part in text, part
     # No data yet: still a usable file.
@@ -302,3 +302,22 @@ def test_pack_check_on_queue(webapp):
     published.clear()
     webapp.link._on_event(gamelogs.Event("matching", "2026-11-17 13:21:56", {"map": "bigmap"}, "regular"), False)
     assert "kit" not in [d for e, d in published if e == "gamelog"][-1]
+
+
+def test_scav_raids_start_the_cooldown(webapp, monkeypatch):
+    monkeypatch.setattr(webapp, "refresh_after_raid", lambda: False)
+    monkeypatch.setattr(webapp.app, "save", lambda: None)
+    pmc, scav = "69ed29e508831aaa8005643a", "69ed29e508831aaa8005643b"
+    text = (line("12:52:38", "application", f"CompleteSelectedProfile ProfileId:{pmc} AccountId:14545243")
+            + line("13:01:53", "application", f"TRACE-NetworkGameCreate profileStatus: 'Profileid: {scav}, Status: Busy, RaidMode: Online, Location: Woods'"))
+    for ev in gamelogs.parse_text(text):
+        webapp.link._on_event(ev, False)
+    assert webapp.link.pmc_id == pmc and webapp.state()["scav"] is None  # no cooldown set yet
+    webapp.app.config.logs.scav_minutes = 20
+    scav_state = webapp.state()["scav"]
+    from datetime import datetime
+
+    assert scav_state["readyAt"] == datetime(2026, 11, 17, 13, 1, 53).timestamp() + 20 * 60
+    # A PMC raid doesn't touch it.
+    webapp.link._on_event(gamelogs.Event("raid", "2026-11-17 14:00:00", {"map": "bigmap", "profileId": pmc}), False)
+    assert webapp.state()["scav"] == scav_state

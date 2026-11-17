@@ -98,7 +98,17 @@ function drawFoot() {
 
 // In-game time for both raid times (left / right), updated every few seconds.
 const clockEl = h("span.chip-status.tclock", { title: "Tarkov time for the two raid times. 21:00-06:00 counts as night (Insomnia, Thirsty). Factory and Labs have fixed times." });
+const scavEl = h("a.chip-status.scav-chip", { href: "#/settings", title: "Scav cooldown, from your last Scav raid in the logs. Set your cooldown in Settings → Game log reader." });
 function drawClock() {
+  const scav = store.state?.scav;
+  if (scav?.readyAt) {
+    const left = scav.readyAt * 1000 - Date.now();
+    scavEl.classList.toggle("on", left <= 0);
+    mount(scavEl, icon("skull", 14), left > 0 ? `Scav ${fmt.countdown(left)}` : "Scav ready");
+    scavEl.style.display = "";
+  } else {
+    scavEl.style.display = "none";
+  }
   const a = tarkovTime(true), b = tarkovTime(false);
   mount(clockEl, icon(a.night && b.night ? "eye" : "sun", 14),
     h("span" + (a.night ? ".tnight" : ""), a.text), h("span.muted", " / "), h("span" + (b.night ? ".tnight" : ""), b.text));
@@ -110,6 +120,7 @@ function drawStatus() {
   const active = watcher.includes("applied");
   const pricesAge = st.prices?.updated ? fmt.ago(st.prices.updated) : "never";
   mount(statusEl,
+    scavEl,
     clockEl,
     h("a.chip-status" + (active ? ".on" : ""), { href: "#/display", title: watcher },
       h("span.dot"), active ? `Display: ${st.profile}` : st.paused ? "Display paused" : "Game not focused"),
@@ -265,7 +276,7 @@ async function boot() {
   window.addEventListener("hashchange", route);
   setInterval(drawStatus, 30000);
   drawClock();
-  setInterval(drawClock, 4000);
+  setInterval(drawClock, 1000);
   connect();
   await route();
 }

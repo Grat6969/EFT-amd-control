@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from . import gamelogs, story
+from . import gamelogs, playerprofile, story
 
 KIT_NAMES = {
     "budget": "Budget (cheap gear, scav-level kits, don't mind losing it)",
@@ -441,7 +441,7 @@ def _map_name(name_id: Optional[str], maps: List[dict]) -> str:
 def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[List[dict]], maps: Optional[List[dict]],
           history: Optional[dict] = None, item_names: Optional[Dict[str, str]] = None, game_mode: str = "regular",
           app_version: str = "", now: Optional[datetime] = None, traders: Optional[List[dict]] = None,
-          prices: Optional[Dict[str, dict]] = None) -> str:
+          prices: Optional[Dict[str, dict]] = None, profile: Optional[dict] = None) -> str:
     """The export as Markdown."""
     now = now or datetime.now()
     tasks, stations, maps = tasks or [], stations or [], maps or []
@@ -483,6 +483,8 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
         out.append(f"- Traders: {', '.join(bits)}")
     else:
         out.append("- Trader levels: not entered (quest availability ignores trader requirements)")
+    if profile and profile.get("profile"):
+        out += [""] + playerprofile.export_lines(profile)[:-1]
     if "lightkeeper" in (adv.get("goal") or "").lower() or standing:
         checklist = lightkeeper_checklist(tasks, traders, progress)
         out += ["", "## Road to Lightkeeper", "", "_Requirements after the 1.1.5 Lighthouse rework, per community guides._", ""]
@@ -568,10 +570,11 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
     if raids:
         out += ["", "## My recent raids (from the game's log files)", "",
                 "_The logs don't say whether I survived or what I looted._", "",
-                "| When | Map | Mode | Queue | Length | Ping | Server |", "|---|---|---|---|---|---|---|"]
+                "| When | Map | As | Mode | Queue | Length | Ping | Server |", "|---|---|---|---|---|---|---|---|"]
         for r in raids:
-            out.append("| {} | {} | {} | {} | {} | {} | {} |".format(
+            out.append("| {} | {} | {} | {} | {} | {} | {} | {} |".format(
                 r["time"][5:16], _map_name(r.get("map"), maps) + ("" if r.get("online", True) else " (offline)"),
+                r.get("side") or "?",
                 MODE_NAMES.get(r.get("mode"), r.get("mode") or "?"),
                 f"{r['queue']} s" if r.get("queue") is not None else "?",
                 f"{r['minutes']} min" if r.get("minutes") is not None else "?",

@@ -139,6 +139,9 @@ export function logsCard() {
         toggle("", st.autoMap, (v) => api("gamelog", { method: "POST", body: { autoMap: v } }))),
       row("Refresh prices when you leave a raid", "Gets the latest flea and trader prices from tarkov.dev as soon as a raid ends, so what you brought out shows current prices.",
         toggle("", st.refreshAfterRaid, (v) => api("gamelog", { method: "POST", body: { refreshAfterRaid: v } }))),
+      row("Scav cooldown timer", "Your Scav cooldown in minutes as the game shows it (it depends on Fence rep and your hideout). The top bar then counts down from your last Scav raid. 0 = off.",
+        h("input.num-input.small", { type: "number", min: 0, max: 120, value: st.scavMinutes || 0,
+          onchange: (e) => api("gamelog", { method: "POST", body: { scavMinutes: Number(e.target.value) || 0 } }).then(() => toast("Scav cooldown saved.", { kind: "good" })).catch((err) => toast(err.message, { kind: "bad" })) })),
       row("Pack check when you queue", "As soon as you press Ready, shows what your pinned quests on that map need you to bring (keys, markers, items to place), while you can still back out.",
         toggle("", st.packCheck !== false, (v) => api("gamelog", { method: "POST", body: { packCheck: v } }))),
       row("Quests from old logs", "Tarkov keeps logs of earlier sessions. Finds quests you finished in them (and every quest before those).",
@@ -224,6 +227,50 @@ export function trackerCard() {
       h("div.muted.small", { style: { marginTop: "8px" } }, "Create a token on ", ext(site, st.domain),
         " (your account settings → API tokens). Give it permission to read progress, and to write progress if you want quests sent back. The token is stored encrypted for your Windows account."));
   };
+  draw();
+  return box;
+}
+
+// -- your public profile from tarkov.dev --------------------------------------------------
+
+export function profileCard() {
+  const box = h("div");
+  let st = null, busy = false;
+  const draw = () => {
+    if (!st) { mount(box, h("div.muted", "Loading…")); return; }
+    const p = st.cached?.profile;
+    const stat = (s, label) => s?.raids ? h("div", h("strong", `${label}: `),
+      `${s.raids} raids, ${s.survivalRate != null ? Math.round(s.survivalRate * 100) + "% survived" : "?"}, ${s.kills} kills`) : null;
+    mount(box,
+      h("div.muted.small", { style: { marginBottom: "8px" } },
+        "tarkov.dev shows every player's public profile (level, skills, raid stats, current kit). RaidReady can read yours using the account id in Tarkov's logs, ",
+        "then raise your level, set your faction, tick achievements and fill the Ask Claude export. Turning this on sends your account id to tarkov.dev."),
+      h("div.toolbar",
+        toggle("Get my profile from tarkov.dev", st.enabled, async (v) => {
+          st = await api("profile", { method: "POST", body: { enabled: v } }); draw();
+          if (v) refresh();
+        }),
+        button(busy ? "Getting it…" : "Get it now", refresh, { kind: "small", iconName: "refresh", disabled: busy || !st.accountId })),
+      h("div.muted.small", st.accountId ? `Account id from the logs: ${st.accountId}` : "No account id found yet: turn on the game log reader and start Tarkov once."),
+      st.error ? h("div.note.warn", { style: { marginTop: "8px" } }, icon("alert", 16), h("div", st.error)) : null,
+      p ? h("div.kv-list", { style: { marginTop: "10px" } },
+        h("div", h("strong", p.nickname || "You"), ` · level ${p.level ?? "?"} ${p.side || ""}`,
+          h("span.muted.small", ` · fetched ${fmt.ago((st.cached.fetched || 0) * 1000)}`)),
+        stat(p.pmc, "PMC"), stat(p.scav, "Scav"),
+        p.skills?.length ? h("div.muted.small", p.skills.slice(0, 8).map((x) => `${x.name} ${x.level}`).join(" · ")) : null) : null);
+  };
+  async function refresh() {
+    busy = true; draw();
+    try {
+      st = await api("profile/refresh", { method: "POST", body: {} });
+      toast("Profile updated from tarkov.dev.", { kind: "good" });
+    } catch (e) {
+      st = await api("profile").catch(() => st);
+      toast(e.message, { kind: "bad", timeout: 10000 });
+    }
+    busy = false; draw();
+  }
+  api("profile").then((s) => { st = s; draw(); }).catch((e) => mount(box, h("div.muted", e.message)));
   draw();
   return box;
 }

@@ -186,6 +186,7 @@ Tarkov writes plain-text log files to the `Logs` folder in its install folder. W
 - marks a quest done the moment you finish it (and every quest before it),
 - shows a **pack check** as soon as you press Ready: what your pinned quests on that map
   need you to bring (keys, markers, items to place), while you can still back out,
+- tells PMC and Scav raids apart and, with your Scav cooldown set, counts it down in the top bar,
 - opens the map when you load into a raid, with markers for your raid plan's quests
   only (you can turn that off),
 - gets fresh prices from tarkov.dev as soon as a raid ends, so what you brought out shows
@@ -204,6 +205,15 @@ in a lot of your history in one go.
 
 The app only opens these log files to read them. It never reads or changes the game's
 memory, process or any other file.
+
+### Your tarkov.dev profile
+
+tarkov.dev shows every player's public profile. With **Settings → Your tarkov.dev profile**
+on, RaidReady reads your account id from Tarkov's logs, fetches your profile (when the app
+starts and after each raid, at most every 10 minutes) and uses it to raise your level, set
+your faction, tick your achievements and set your Hideout Management skill. The Ask Claude
+export gets your raid count, survival rate, kills, skills and the kit on your PMC. It's off by
+default because it sends your account id to tarkov.dev.
 
 ### Ask Claude
 

@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import asdict
 from typing import List, Optional
 
-from . import APP_NAME, __version__, advisor, gamelogs, questmap, staticapi, story
+from . import APP_NAME, __version__, advisor, gamelogs, playerprofile, questmap, staticapi, story
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
@@ -20,7 +20,11 @@ from .ocr import available_engine
 from .prices import PriceDB, rub
 from .pricewatch import FETCHES_NOW, FETCHES_PER_CHECK, PriceWatch
 from .profiles import BUILTIN_PROFILES, Profile, load_config
-from .progress import Progress
+from .progress import ID as _ID, Progress
+
+
+def progress_id(value: str) -> bool:
+    return bool(_ID.match(value))
 from .server import Raw, Server, find_running
 from .updater import DEFAULT_BRANCH, Updater
 from .window import open_window
@@ -81,6 +85,8 @@ class WebApp:
         self._watched_prices = 0.0  # the price list the price watch last checked
         self._watch_version = 0     # goes up whenever a check starts or ends (see pricewatch_state)
         self.link = GameLink(self)
+        self.profiles = playerprofile.ProfileStore(self.cfg_dir)
+        self.profile_status: dict = {"running": False, "error": None}
         self.server = self._bind(port or cfg.port, restarted)
 
     # -- setup ----------------------------------------------------------
@@ -154,6 +160,7 @@ class WebApp:
             },
             "gameMode": cfg.game_mode,
             "raid": self.link.raid_state() if hasattr(self, "link") else None,
+            "scav": self.link.scav_state() if hasattr(self, "link") else None,
             "update": {"available": bool(last.get("available")), "latest": last.get("latest")},
             "updating": dict(self.update_status),
         }
@@ -239,6 +246,8 @@ class WebApp:
         self._in_background(lambda: self.app.prices.refresh(fresh=True))
         for name in AFTER_RAID:
             self.store.refresh_async(name)
+        if self.app.config.logs.profile:
+            self._in_background(lambda: self.profile_refresh(force=True, quiet=True))
         return True
 
     @staticmethod
@@ -362,6 +371,68 @@ class WebApp:
                             [], notes, "Back out of matching if you forgot something", cursor, 14)
         return dict(kit, lines=lines)
 
+    # -- public profile from tarkov.dev (see playerprofile.py) ------------
+
+    def _account_id(self) -> Optional[str]:
+        return playerprofile.account_id(self._logs_folder())
+
+    def profile_state(self) -> dict:
+        mode = self.app.config.game_mode
+        return {"enabled": self.app.config.logs.profile, "accountId": self._account_id(),
+                "cached": self.profiles.cached(mode), **self.profile_status}
+
+    def profile_change(self, body) -> dict:
+        if not isinstance(body, dict):
+            raise ValueError("bad request")
+        if "enabled" in body:
+            self.app.config.logs.profile = bool(body["enabled"])
+            self.app.save()
+        return self.profile_state()
+
+    def profile_refresh(self, force: bool = False, quiet: bool = False) -> dict:
+        """Fetch your profile and bring level, faction, achievements and the
+        Hideout Management skill up to date (never lowers anything)."""
+        mode = self.app.config.game_mode
+        self.profile_status.update(running=True, error=None)
+        try:
+            aid = self._account_id()
+            if not aid:
+                raise ValueError("Couldn't find your account id in Tarkov's logs. Turn on the game log reader and start the game once.")
+            result = self.profiles.fetch(aid, mode, self._item_names(), force=force)
+            self._apply_profile(mode, result.get("profile") or {})
+            self.profile_status.update(running=False, error=None)
+            self.publish("profile", self.profile_state())
+            return self.profile_state()
+        except Exception as exc:
+            self.profile_status.update(running=False, error=str(exc))
+            log.info("Profile from tarkov.dev failed: %s", exc)
+            if quiet:
+                return self.profile_state()
+            raise ValueError(str(exc)) from None
+
+    def _apply_profile(self, mode: str, p: dict) -> None:
+        with self.link.lock:
+            if mode != self.app.config.game_mode:
+                return
+            snap = self.progress.snapshot()
+            change: dict = {"op": "profile"}
+            if isinstance(p.get("level"), (int, float)) and p["level"] > snap["player_level"]:
+                change["player_level"] = int(p["level"])
+            side = str(p.get("side") or "").upper()
+            if side in ("USEC", "BEAR") and side != snap["faction"]:
+                change["faction"] = side
+            hm = next((s["level"] for s in p.get("skills") or [] if s.get("id") == "HideoutManagement"), None)
+            if isinstance(hm, int) and hm > snap["hideout_management"]:
+                change["hideout_management"] = hm
+            if len(change) > 1:
+                snap = self.progress.apply(change)
+            known = {a.get("id") for a in self.store.snapshot("achievements")["data"] or [] if isinstance(a, dict)}
+            new = [a for a in p.get("achievements") or [] if (not known or a in known) and a not in snap["achievements"]
+                   and isinstance(a, str) and progress_id(a)]
+            if new:
+                snap = self.progress.apply({"op": "achievements", "ids": new, "done": True})
+            self.publish("progress", snap)
+
     def lightkeeper_state(self) -> dict:
         return {"checklist": advisor.lightkeeper_checklist(self.store.get("tasks", 20)["data"],
                                                            self.store.get("traders", 20)["data"],
@@ -418,6 +489,7 @@ class WebApp:
             app_version=__version__,
             traders=self.store.get("traders", 20)["data"],
             prices=prices,
+            profile=self.profiles.cached(self.app.config.game_mode),
         )
 
     def advisor_export(self) -> dict:
@@ -804,6 +876,8 @@ class WebApp:
             threading.Thread(target=target, name=name, daemon=True).start()
         self.link.start_logs()
         threading.Thread(target=self.link.auto_import, name="TrackerImport", daemon=True).start()
+        if self.app.config.logs.profile:
+            threading.Thread(target=lambda: self.profile_refresh(quiet=True), name="Profile", daemon=True).start()
         if self.open_on_start:
             log.info("Opened %s", open_window(self.server.url))
         from .popup import create_host
