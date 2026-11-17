@@ -329,7 +329,7 @@ DATASETS: Dict[str, Dataset] = {d.name: d for d in [
     Dataset("barters", 6 * HOUR, _files_or_query(staticapi.barters, BARTERS_QUERY, "barters")),
     Dataset("crafts", 6 * HOUR, _files_or_query(staticapi.crafts, CRAFTS_QUERY, "crafts")),
     Dataset("ammo", 12 * HOUR, _files_or_query(staticapi.ammo, AMMO_QUERY, "ammo")),
-    Dataset("maps", 12 * HOUR, _files_or_query(staticapi.maps, MAPS_QUERY, "maps")),
+    Dataset("maps", 12 * HOUR, _files_or_query(staticapi.maps, MAPS_QUERY, "maps"), version=2),  # 2: positions
     Dataset("traders", 10 * 60, _files_or_query(staticapi.traders, TRADERS_QUERY, "traders")),  # reset timers
     Dataset("cashoffers", 6 * HOUR, _files_or_query(staticapi.cashoffers, CASH_OFFERS_QUERY, "traders")),
     Dataset("bosses", 24 * HOUR, _files_or_query(staticapi.bosses, BOSSES_QUERY, "bosses")),

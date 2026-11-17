@@ -13,7 +13,7 @@ from collections import deque
 from pathlib import Path
 from typing import List, Optional
 
-from . import gamelogs, secretstore
+from . import gamelogs, screenshots, secretstore
 from .datasets import DataStore
 from .progress import Progress
 from .tracker import DOMAINS, TrackerClient, TrackerError, check_token, merge_progress
@@ -56,6 +56,7 @@ class GameLink:
         self.raid: Optional[dict] = None  # the raid you're in, from the logs (see raid_state)
         self._last_end: Optional[str] = None  # log time of the last raid end reported
         self.pmc_id: Optional[str] = None  # your PMC's profile id, from the logs
+        self.shots: Optional[screenshots.ScreenshotWatcher] = None
 
     @property
     def cfg(self):
@@ -124,11 +125,25 @@ class GameLink:
             return
         self.follower = gamelogs.LogFollower(self.folder, self._on_event)
         self.follower.start()
+        if self.cfg.logs.screenshots:
+            self.shots = screenshots.ScreenshotWatcher(screenshots.default_folder(), self._on_position)
+            self.shots.start()
 
     def stop_logs(self) -> None:
         if self.follower:
             self.follower.stop()
             self.follower = None
+        if self.shots:
+            self.shots.stop()
+            self.shots = None
+
+    def _on_position(self, pos: dict) -> None:
+        """A new screenshot during a raid: you're there, on the raid's map."""
+        raid = self.raid_state()
+        if not raid or not raid.get("normalizedName"):
+            return
+        self.web.position = dict(pos, map=raid["normalizedName"])
+        self.web.publish("position", {"map": raid["normalizedName"], "time": pos.get("time")})
 
     def logs_state(self) -> dict:
         logs = self.cfg.logs
@@ -138,6 +153,7 @@ class GameLink:
             "enabled": logs.enabled, "path": logs.path, "autoMap": logs.auto_map,
             "refreshAfterRaid": logs.refresh_after_raid, "packCheck": logs.pack_check,
             "scavMinutes": logs.scav_minutes, "scavStarted": logs.scav_started or None,
+            "screenshots": logs.screenshots, "screenshotFolder": str(screenshots.default_folder()),
             "folder": str(found) if found else None,
             "detected": str(gamelogs.find_logs_folder() or "") or None,
             "session": f.session.name if f and f.session else None,
@@ -166,6 +182,8 @@ class GameLink:
             logs.refresh_after_raid = bool(body["refreshAfterRaid"])
         if "packCheck" in body:
             logs.pack_check = bool(body["packCheck"])
+        if "screenshots" in body:
+            logs.screenshots, restart = bool(body["screenshots"]), True
         if "scavMinutes" in body:
             try:
                 logs.scav_minutes = max(0, min(120, int(body["scavMinutes"] or 0)))

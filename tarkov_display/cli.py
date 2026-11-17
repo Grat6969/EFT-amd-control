@@ -26,6 +26,13 @@ def cmd_gui(args) -> int:
     )
 
 
+def cmd_mcp(args) -> int:
+    """Serve RaidReady's saved data to Claude Desktop over stdin/stdout (see mcp.py)."""
+    from .mcp import serve
+
+    return serve()
+
+
 def cmd_watch(args) -> int:
     app = App()
     if args.profile:
@@ -225,12 +232,13 @@ def main(argv=None) -> int:
     sub.add_parser("restore", help="put back the settings saved before the last apply").set_defaults(
         func=cmd_restore
     )
+    sub.add_parser("mcp", help="serve your saved progress to Claude Desktop (stdin/stdout)").set_defaults(func=cmd_mcp)
 
     args = parser.parse_args(argv)
     from .popup import make_dpi_aware
 
     make_dpi_aware()  # before any window or screenshot
-    if sys.platform != "win32" and args.command not in (None, "gui", "list", "price"):
+    if sys.platform != "win32" and args.command not in (None, "gui", "list", "price", "mcp"):
         print("tarkov-display controls Windows display drivers and only runs on Windows.")
         return 1
     log_file = setup_logging(args.verbose)

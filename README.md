@@ -109,7 +109,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
 | **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
 | **Achievements** | All achievements with rarity and how many players have them; tick off yours |
-| **Maps** | A marker for every quest's objectives on its map, named and coloured per quest (see [Quest markers](#quest-markers)), zoomable 2D/3D map images, your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
+| **Maps** | Extracts (red ring = an open quest needs it, e.g. Information Source's car exits), transits, locked doors, PMC spawns and BTR stops as switchable layers; a marker for every quest's objectives on its map, named and coloured per quest (see [Quest markers](#quest-markers)), zoomable 2D/3D map images, your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
 | **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
 | **Traders** | Your loyalty level and reputation with each trader (so quests you can't take yet stay locked), a Road to Lightkeeper checklist, restock countdowns, loyalty level requirements, everything each trader sells |
 | **Display** | Display profiles, auto-boost and price-check settings |
@@ -205,6 +205,21 @@ in a lot of your history in one go.
 
 The app only opens these log files to read them. It never reads or changes the game's
 memory, process or any other file.
+
+### Claude Desktop
+
+On the **Ask Claude** page, **Add RaidReady to Claude Desktop** registers RaidReady as a
+local tool in the Claude Desktop app (it backs up Claude's settings file first). Restart
+Claude Desktop and ask it things like "what should I run next?": it reads your quests,
+story, keys, hideout, raids, prices and Lightkeeper checklist straight from what RaidReady
+has saved on this PC, read-only, even with the RaidReady window closed. Under the hood it
+runs `python -m tarkov_display mcp`.
+
+### Where you are (screenshots)
+
+Off by default. When it's on and you press Tarkov's screenshot key in a raid, RaidReady
+reads the new file's *name* (the game writes your position into it) and shows a red dot on
+the Maps page. It never presses the key for you and never opens the image.
 
 ### Your tarkov.dev profile
 

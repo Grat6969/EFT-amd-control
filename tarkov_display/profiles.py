@@ -132,6 +132,7 @@ class LogsConfig:
     refresh_after_raid: bool = True  # fresh prices from tarkov.dev when a raid ends
     pack_check: bool = True  # when you queue for a map, show what your raid plan needs you to bring
     profile: bool = False    # get your public profile from tarkov.dev (sends your account id there)
+    screenshots: bool = False  # dot on the map from your own in-raid screenshots' file names
     scav_minutes: int = 0    # your Scav cooldown as the game shows it (0 = no timer)
     scav_started: float = 0.0  # when your last Scav raid started (from the logs)
 

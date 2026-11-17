@@ -423,14 +423,50 @@ def quest_markers(tasks: Optional[Iterable[dict]], map_id: str, entry: dict, pic
     return quests, outside
 
 
+def places(game_map: dict, entry: dict, picture: Picture, wanted_exits: Iterable[str] = ()) -> List[dict]:
+    """Extracts, transits, locked doors, spawns and BTR stops on the picture.
+    ``wanted_exits``: extract names open quests ask for (highlighted)."""
+    wanted = {str(n).lower() for n in wanted_exits if n}
+    out: List[dict] = []
+
+    def add(kind: str, item: dict, **fields):
+        pos = _xyz(item.get("position"))
+        if pos is None or not in_bounds(entry, pos[0], pos[2]):
+            return
+        fx, fy = picture.fraction(entry, pos[0], pos[2])
+        out.append({"kind": kind, "x": _round(fx), "y": _round(fy), "floor": floor_name(entry, *pos), **fields})
+
+    for x in game_map.get("extracts") or []:
+        if isinstance(x, dict):
+            name = x.get("name") or ""
+            add("extract", x, name=name, faction=x.get("faction") or "", quest=name.lower() in wanted)
+    for x in game_map.get("transits") or []:
+        if isinstance(x, dict):
+            add("transit", x, name=x.get("description") or (x.get("map") or {}).get("name") or "Transit",
+                conditions=x.get("conditions") or "")
+    for x in game_map.get("locks") or []:
+        if isinstance(x, dict):
+            key = x.get("key") or {}
+            add("lock", x, name=key.get("name") or "Locked door", keyId=key.get("id"), needsPower=bool(x.get("needsPower")))
+    for x in game_map.get("spawns") or []:
+        if isinstance(x, dict) and any(c.lower() == "player" for c in x.get("categories") or []):
+            sides = [s.lower() for s in x.get("sides") or []]
+            add("spawn", x, name=x.get("zoneName") or "Spawn", sides=sides)
+    for x in game_map.get("btrStops") or []:
+        if isinstance(x, dict):
+            add("btr", x, name=x.get("name") or "BTR stop")
+    return out
+
+
 def build(maps: Optional[list], tasks: Optional[list], mapimages: Optional[dict], normalized_name: str,
-          drawings: Optional[Drawings]) -> dict:
+          drawings: Optional[Drawings], wanted_exits: Iterable[str] = (), position: Optional[dict] = None) -> dict:
     """Everything the map page needs to draw quest markers on one map."""
     game_map = next((m for m in maps or [] if isinstance(m, dict) and m.get("normalizedName") == normalized_name), None)
     if not game_map:
         raise KeyError(f"no map called {normalized_name}")
     entry = entry_for(mapimages, normalized_name)
-    out = {"map": {k: game_map.get(k) for k in ("id", "name", "normalizedName")}, "picture": None, "quests": [], "outside": 0}
+    out = {"map": {k: game_map.get(k) for k in ("id", "name", "normalizedName")}, "picture": None, "quests": [], "outside": 0,
+           "places": [], "you": None}
     if not entry:
         return out
     picture_info = {"key": entry["key"], "author": entry.get("author"), "authorLink": entry.get("authorLink")}
@@ -455,6 +491,12 @@ def build(maps: Optional[list], tasks: Optional[list], mapimages: Optional[dict]
     out.pop("error", None)
     out["picture"] = picture_info
     out["quests"], out["outside"] = quest_markers(tasks, game_map.get("id"), entry, picture)
+    out["places"] = places(game_map, entry, picture, wanted_exits)
+    # Where you took your last screenshot (only if it was on this map).
+    pos = _xyz(position) if position else None
+    if pos and in_bounds(entry, pos[0], pos[2]):
+        fx, fy = picture.fraction(entry, pos[0], pos[2])
+        out["you"] = {"x": _round(fx), "y": _round(fy), "floor": floor_name(entry, *pos), "time": position.get("time")}
     return out
 
 

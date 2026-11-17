@@ -142,6 +142,8 @@ export function logsCard() {
       row("Scav cooldown timer", "Your Scav cooldown in minutes as the game shows it (it depends on Fence rep and your hideout). The top bar then counts down from your last Scav raid. 0 = off.",
         h("input.num-input.small", { type: "number", min: 0, max: 120, value: st.scavMinutes || 0,
           onchange: (e) => api("gamelog", { method: "POST", body: { scavMinutes: Number(e.target.value) || 0 } }).then(() => toast("Scav cooldown saved.", { kind: "good" })).catch((err) => toast(err.message, { kind: "bad" })) })),
+      row("Show where you are from your screenshots", "When you press Tarkov's screenshot key in a raid, the file's name holds your position. RaidReady reads only the name of the newest one and puts a dot on the map. It never presses the key for you. Low-risk gray area: TarkovMonitor and Tarkov Market do the same.",
+        toggle("", st.screenshots, (v) => api("gamelog", { method: "POST", body: { screenshots: v } }).then(() => toast(v ? "Watching " + st.screenshotFolder : "Stopped.", { kind: "good" })))),
       row("Pack check when you queue", "As soon as you press Ready, shows what your pinned quests on that map need you to bring (keys, markers, items to place), while you can still back out.",
         toggle("", st.packCheck !== false, (v) => api("gamelog", { method: "POST", body: { packCheck: v } }))),
       row("Quests from old logs", "Tarkov keeps logs of earlier sessions. Finds quests you finished in them (and every quest before those).",

@@ -226,6 +226,7 @@ function connect() {
   }));
   es.addEventListener("update", json((u) => { store.state.updating = u; emit("update", u); }));
   es.addEventListener("gamelog", json(onGameEvent));
+  es.addEventListener("position", json((p) => emit("position", p)));
   es.addEventListener("restarting", () => overlay("Restarting with the new version…"));
   es.addEventListener("reload", () => location.reload());
   es.onerror = () => {

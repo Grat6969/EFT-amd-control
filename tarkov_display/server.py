@@ -256,6 +256,14 @@ class Server:
         def tracker_import(req, m, q, body):
             return ctx.link.tracker_import((body or {}).get("mode"))
 
+        @r("GET", "/api/claude")
+        def claude_state(req, m, q, body):
+            return ctx.claude_desktop_state()
+
+        @r("POST", "/api/claude/install")
+        def claude_install(req, m, q, body):
+            return ctx.claude_desktop_install()
+
         @r("GET", "/api/profile")
         def profile_state(req, m, q, body):
             return ctx.profile_state()

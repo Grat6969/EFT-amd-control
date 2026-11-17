@@ -313,6 +313,12 @@ def _position(p) -> Optional[dict]:
     return out if "x" in out and "z" in out else None
 
 
+def _placed(x: dict) -> dict:
+    """{"position": {x, y, z}} when the entry has a usable one."""
+    pos = _position(x.get("position"))
+    return {"position": pos} if pos else {}
+
+
 def _zone(z: dict) -> dict:
     out = {"id": z.get("id"), "map": {"id": _id(z.get("map"))} if z.get("map") else None}
     position = _position(z.get("position"))
@@ -549,11 +555,18 @@ def maps(client: TarkovClient) -> List[dict]:
                 "escorts": [{"boss": boss(e.get("mob") or e.get("id"), portrait=False), "amount": e.get("amount") or []}
                             for e in b.get("escorts") or []],
             } for b in m.get("bosses") or []],
-            "extracts": [{"id": x.get("id"), "name": x.get("name"), "faction": x.get("faction")} for x in m.get("extracts") or []],
+            # Positions too (game coordinates), for the Maps page's extract/spawn/door layers.
+            "extracts": [{"id": x.get("id"), "name": x.get("name"), "faction": x.get("faction"),
+                          **_placed(x)} for x in m.get("extracts") or [] if isinstance(x, dict)],
             "transits": [{"id": x.get("id"), "description": x.get("description"), "conditions": x.get("conditions"),
-                          "map": src.map(x.get("map"))} for x in m.get("transits") or []],
-            "locks": [{"lockType": x.get("lockType"), "needsPower": x.get("needsPower"), "key": src.item(x.get("key"))}
-                      for x in m.get("locks") or [] if x.get("key")],
+                          "map": src.map(x.get("map")), **_placed(x)} for x in m.get("transits") or [] if isinstance(x, dict)],
+            "locks": [{"lockType": x.get("lockType"), "needsPower": x.get("needsPower"), "key": src.item(x.get("key")),
+                       **_placed(x)} for x in m.get("locks") or [] if isinstance(x, dict) and x.get("key")],
+            "spawns": [{"zoneName": x.get("zoneName"), "sides": [str(v) for v in x.get("sides") or []],
+                        "categories": [str(v) for v in x.get("categories") or []], **_placed(x)}
+                       for x in m.get("spawns") or [] if isinstance(x, dict) and _position(x.get("position"))],
+            "btrStops": [{"name": x.get("name"), **_placed(x if "position" in x else {"position": x})}
+                         for x in m.get("btrStops") or [] if isinstance(x, dict)],
             "hazards": [{"hazardType": x.get("hazardType"), "name": x.get("name")} for x in m.get("hazards") or []],
         })
     if not out:
