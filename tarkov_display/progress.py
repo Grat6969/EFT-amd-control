@@ -33,8 +33,11 @@ DEFAULT = {
     "objectives": {},          # objective id -> how far along (count done; 1 = done)
     # For the "Ask Claude" export: what you usually take into raid and what you're after.
     "advisor": {"kit": "", "roubles": 0, "goal": "", "notes": ""},
+    # Story chapters (see story.py): finished step ids, and a note per chapter (choices made).
+    "story": {"steps": [], "notes": {}},
 }
 
+NOTE_LIMIT = 500
 KITS = ("", "budget", "mid", "geared", "meta")
 TEXT_LIMITS = {"goal": 200, "notes": 1000}
 
@@ -111,6 +114,14 @@ def _clean(data: dict) -> dict:
                 if isinstance(k, str) and ID.match(k) and isinstance(v, (int, float)) and math.isfinite(v) and v > 0
             }
     out["advisor"] = _advisor(data.get("advisor"), out["advisor"])
+    story = data.get("story") if isinstance(data.get("story"), dict) else {}
+    steps = story.get("steps")
+    notes = story.get("notes")
+    out["story"] = {
+        "steps": sorted({v for v in steps if isinstance(v, str) and ID.match(v)}) if isinstance(steps, list) else [],
+        "notes": {k: v.strip()[:NOTE_LIMIT] for k, v in notes.items()
+                  if isinstance(k, str) and ID.match(k) and isinstance(v, str) and v.strip()} if isinstance(notes, dict) else {},
+    }
     return out
 
 
@@ -198,6 +209,20 @@ class Progress:
                     d["faction"] = op["faction"]
             elif kind == "advisor":
                 d["advisor"] = _advisor(op.get("settings"), d.get("advisor") or DEFAULT["advisor"], strict=True)
+            elif kind == "story":
+                story = d.setdefault("story", {"steps": [], "notes": {}})
+                ids = set(_ids(op.get("ids")))
+                current = set(story["steps"])
+                story["steps"] = sorted(current | ids if op.get("done") else current - ids)
+            elif kind == "story_note":
+                chapter, text = op.get("chapter"), op.get("text")
+                if not isinstance(chapter, str) or not ID.match(chapter) or not isinstance(text, str):
+                    raise ProgressError("bad story note")
+                story = d.setdefault("story", {"steps": [], "notes": {}})
+                if text.strip():
+                    story["notes"][chapter] = text.strip()[:NOTE_LIMIT]
+                else:
+                    story["notes"].pop(chapter, None)
             elif kind == "reset":
                 what = op.get("what")
                 if what == "all":
@@ -206,6 +231,8 @@ class Progress:
                     d[what] = []
                 elif what in ("hideout", "owned", "objectives"):
                     d[what] = {}
+                elif what == "story":
+                    d["story"] = {"steps": [], "notes": {}}
                 else:
                     raise ProgressError("nothing to reset")
             elif kind == "import":

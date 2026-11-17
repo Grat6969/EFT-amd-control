@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
-from . import gamelogs
+from . import gamelogs, story
 
 KIT_NAMES = {
     "budget": "Budget (cheap gear, scav-level kits, don't mind losing it)",
@@ -35,8 +35,8 @@ PROMPT = """\
 > **Claude:** this is my current state in Escape from Tarkov, exported from RaidReady (my companion app).
 > Before you answer, search current Reddit (r/EscapefromTarkov, r/Tarkov) and the Tarkov wiki for advice
 > on this patch, then tell me, briefly:
-> 1. The best map for my next 1-3 raids and why: stack as many of my open quests as you can, using the
->    keys I have, my level and my budget.
+> 1. The best map for my next 1-3 raids and why: stack as many of my open quests and story steps as
+>    you can, using the keys I have, my level and my budget.
 > 2. The order to do the objectives on that map, with any spawn/extract tips that matter.
 > 3. What to bring: gear that fits my budget, and which of my keys to take.
 > 4. Quests to turn in or pick up first, and items worth keeping vs selling.
@@ -217,6 +217,30 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
 
 # -- the export ----------------------------------------------------------------------------
 
+def _story_lines(progress: dict) -> List[str]:
+    """Story chapters: where I am in each, and the next steps."""
+    data = progress.get("story") or {}
+    done = set(data.get("steps") or [])
+    notes = data.get("notes") or {}
+    out = ["## Story chapters", "",
+           "_Ticked off by hand in RaidReady; the step list comes from community guides and may lag a patch._", ""]
+    for ch in story.CHAPTERS:
+        st = story.chapter_status(ch, done)
+        kind = "main story" if ch["kind"] == "main" else "investigation"
+        out.append(f"- **{ch['name']}** ({kind}): {st['state']}, {st['done']}/{st['total']} steps")
+        if ch["id"] in notes:
+            out.append(f"  - My notes: {notes[ch['id']]}")
+        if st["state"] == "not started":
+            out.append(f"  - Starts: {ch['start']}")
+        for s in st["next"]:
+            where = s["map"] or "trader/hideout"
+            extra = [f"needs {s['need']}" if s["need"] else "", f"only if {s['branch'].lower()}" if s.get("branch") else ""]
+            extra = ", ".join(e for e in extra if e)
+            if st["state"] == "in progress":
+                out.append(f"  - Next: {s['text']} [{where}]" + (f" ({extra})" if extra else ""))
+    return out + [""]
+
+
 def _hideout(stations: List[dict], progress: dict, item_names: Dict[str, str]) -> List[str]:
     built = progress.get("hideout") or {}
     owned = progress.get("owned") or {}
@@ -303,6 +327,7 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
                 out.append(f"  - …and {len(e['left']) - 8} more")
         out.append("")
 
+    out += _story_lines(progress)
     out += ["## Keys my open quests use", ""]
     if q["keys"]:
         for k in q["keys"]:

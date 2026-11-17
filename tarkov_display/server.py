@@ -256,6 +256,10 @@ class Server:
         def tracker_import(req, m, q, body):
             return ctx.link.tracker_import((body or {}).get("mode"))
 
+        @r("GET", "/api/story")
+        def story_data(req, m, q, body):
+            return ctx.story_data()
+
         @r("GET", "/api/advisor")
         def advisor_state(req, m, q, body):
             return ctx.advisor_state()

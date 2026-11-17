@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import asdict
 from typing import List, Optional
 
-from . import APP_NAME, __version__, advisor, gamelogs, questmap, staticapi
+from . import APP_NAME, __version__, advisor, gamelogs, questmap, staticapi, story
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
@@ -332,6 +332,11 @@ class WebApp:
 
     def recent_scans(self) -> list:
         return list(self.scans)
+
+    # -- story chapters (see story.py) ----------------------------------
+
+    def story_data(self) -> dict:
+        return story.payload()
 
     # -- "Ask Claude" export (see advisor.py) ----------------------------
 
