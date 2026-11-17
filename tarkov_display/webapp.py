@@ -338,6 +338,30 @@ class WebApp:
     def story_data(self) -> dict:
         return story.payload()
 
+    def pack_check(self, map_id: str) -> Optional[dict]:
+        """When you queue for a map: what your raid plan needs you to bring.
+        Shown next to the mouse (the game is still in the menus) and in the window."""
+        tasks = self.store.snapshot("tasks")["data"]
+        if not tasks or not self.app.config.logs.pack_check:
+            return None
+        kit = advisor.raid_kit(tasks, self.progress.snapshot(), map_id)
+        lines = advisor.kit_lines(kit)
+        if self.popup and (kit["bring"] or kit["quests"]):
+            from .popup import ACCENT, MUTED
+
+            try:
+                from .screen import ScreenSampler
+
+                cursor = ScreenSampler().cursor_pos()
+            except Exception:
+                cursor = (0, 0)
+            name = next((m.get("name") for m in self.store.snapshot("maps")["data"] or [] if m.get("id") == map_id), "this map")
+            what = "pinned" if kit["source"] == "pinned" else "accepted"
+            notes = [("", line, ACCENT if "not ticked" in line else "") for line in lines] or [("", "Nothing special to bring.", MUTED)]
+            self.popup.show(f"Pack check: {name}", f"{len(kit['quests'])} {what} quest{'s' if len(kit['quests']) != 1 else ''} here",
+                            [], notes, "Back out of matching if you forgot something", cursor, 14)
+        return dict(kit, lines=lines)
+
     def lightkeeper_state(self) -> dict:
         return {"checklist": advisor.lightkeeper_checklist(self.store.get("tasks", 20)["data"],
                                                            self.store.get("traders", 20)["data"],

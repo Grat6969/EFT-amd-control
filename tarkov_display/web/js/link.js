@@ -26,6 +26,8 @@ export function describeEvent(e) {
         text: `Sold ${e.count > 1 ? `${e.count}× ` : ""}${e.name || "an item"} on the flea`,
         sub: [e.buyer ? `to ${e.buyer}` : null, e.roubles ? fmt.rub(e.roubles) : null].filter(Boolean).join(" · "),
       };
+    case "matching":
+      return { icon: "clock", text: `Queueing for ${e.name || e.map || "a raid"}`, sub: "" };
     case "mode":
       return { icon: "settings", text: `Tarkov switched to ${MODE[e.gameMode] || e.gameMode}`, sub: "" };
     case "tracker":
@@ -52,6 +54,13 @@ export function onGameEvent(e) {
   emit("gamelog", e);
   const d = describeEvent(e);
   if (e.kind === "quest" && e.status === "started") return;  // too chatty
+  if (e.kind === "matching") {
+    if (e.kit) {
+      const lines = e.kit.lines?.length ? e.kit.lines.join(" · ") : "nothing special to bring";
+      toast(`Pack check for ${e.name}: ${lines}`, { timeout: 20000, actionLabel: "Raid plan", action: () => { location.hash = "#/raid"; } });
+    }
+    return;
+  }
   if (e.kind === "flea" && e.needed?.length) {
     toast(`You sold ${e.name || "an item"}, but you still need it: ${e.needed.join("; ")}`, { kind: "warn", timeout: 15000,
       actionLabel: "Needed items", action: () => { location.hash = "#/needed"; } });
@@ -130,6 +139,8 @@ export function logsCard() {
         toggle("", st.autoMap, (v) => api("gamelog", { method: "POST", body: { autoMap: v } }))),
       row("Refresh prices when you leave a raid", "Gets the latest flea and trader prices from tarkov.dev as soon as a raid ends, so what you brought out shows current prices.",
         toggle("", st.refreshAfterRaid, (v) => api("gamelog", { method: "POST", body: { refreshAfterRaid: v } }))),
+      row("Pack check when you queue", "As soon as you press Ready, shows what your pinned quests on that map need you to bring (keys, markers, items to place), while you can still back out.",
+        toggle("", st.packCheck !== false, (v) => api("gamelog", { method: "POST", body: { packCheck: v } }))),
       row("Quests from old logs", "Tarkov keeps logs of earlier sessions. Finds quests you finished in them (and every quest before those).",
         button("Scan old logs", async () => {
           try { scan = await api("gamelog/scan", { method: "POST", body: {} }); drawScan(); }

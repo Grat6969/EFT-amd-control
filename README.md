@@ -115,6 +115,9 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Display** | Display profiles, auto-boost and price-check settings |
 | **Settings** | PvP / PvE, your level and faction, flea fee settings, game log reader, TarkovTracker, data refresh, updates, backup and restore |
 
+The top bar shows Tarkov's in-game time for both raid times (left / right), blue at
+night (21:00-06:00). Factory and The Lab have fixed times.
+
 Progress is saved on your PC, separately for PvP and PvE. **Settings → Backup** exports
 it to a file.
 
@@ -181,6 +184,8 @@ Tarkov writes plain-text log files to the `Logs` folder in its install folder. W
 **Read Tarkov's log files** on, the app follows the current session's logs and:
 
 - marks a quest done the moment you finish it (and every quest before it),
+- shows a **pack check** as soon as you press Ready: what your pinned quests on that map
+  need you to bring (keys, markers, items to place), while you can still back out,
 - opens the map when you load into a raid, with markers for your raid plan's quests
   only (you can turn that off),
 - gets fresh prices from tarkov.dev as soon as a raid ends, so what you brought out shows

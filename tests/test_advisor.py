@@ -257,3 +257,48 @@ def test_selling_a_needed_item_warns(webapp):
     webapp.link._on_event(gl.Event("flea", "2026-11-17 13:00:00", {"itemId": ledx.id, "count": 1, "roubles": 1}, "regular"), False)
     event = [d for e, d in published if e == "gamelog"][-1]
     assert any("Private Clinic" in n for n in event["needed"])
+
+
+# -- pre-raid pack check ----------------------------------------------------------------------
+
+def test_matching_event_from_scene_preset():
+    text = line("13:01:30", "application", "scene preset path:maps/customs_preset.bundle rcid:bigmap.scenespreset.asset")
+    (ev,) = gamelogs.parse_text(text)
+    assert (ev.kind, ev.data) == ("matching", {"map": "bigmap"})
+
+
+def test_raid_kit_for_pinned_quests():
+    tasks, _, maps = demo_data()
+    customs = next(m for m in maps if m["name"] == "Customs")
+    aquarius = next(t for t in tasks if t["name"] == "Operation Aquarius - Part 1")
+    progress = {"player_level": 30, "faction": "USEC", "tasks": [], "pinned": [aquarius["id"]], "owned": {}, "objectives": {}}
+    kit = advisor.raid_kit(tasks, progress, customs["id"])
+    assert kit["source"] == "pinned" and kit["quests"] == [aquarius["name"]]
+    key = next(e for e in kit["bring"] if e["kind"] == "Key")
+    assert "Dorm room 206 key" in key["items"] and key["have"] is False
+    assert any("Dorm room 206 key" in l and "not ticked" in l for l in advisor.kit_lines(kit))
+    other = next(m for m in maps if m["name"] == "Woods")
+    assert advisor.raid_kit(tasks, progress, other["id"])["bring"] == []
+    # Nothing pinned: accepted quests count instead.
+    progress.update(pinned=[], accepted=[aquarius["id"]])
+    from tarkov_display.linking import prerequisite_ids
+
+    progress["tasks"] = prerequisite_ids(aquarius["id"], tasks)
+    assert advisor.raid_kit(tasks, progress, customs["id"])["source"] == "accepted"
+
+
+def test_pack_check_on_queue(webapp):
+    tasks = webapp.store.refresh("tasks")["data"]
+    webapp.store.refresh("maps")
+    aquarius = next(t for t in tasks if t["name"] == "Operation Aquarius - Part 1")
+    webapp.progress.apply({"op": "pin", "ids": [aquarius["id"]], "pinned": True})
+    published = []
+    webapp.publish = lambda event, data: published.append((event, data))
+    webapp.link._on_event(gamelogs.Event("matching", "2026-11-17 13:01:30", {"map": "bigmap"}, "regular"), False)
+    event = [d for e, d in published if e == "gamelog"][-1]
+    assert event["name"] == "Customs" and any("Dorm room 206 key" in l for l in event["kit"]["lines"])
+    assert not any(e["kind"] == "matching" for e in webapp.link.events)  # not listed
+    webapp.app.config.logs.pack_check = False
+    published.clear()
+    webapp.link._on_event(gamelogs.Event("matching", "2026-11-17 13:21:56", {"map": "bigmap"}, "regular"), False)
+    assert "kit" not in [d for e, d in published if e == "gamelog"][-1]

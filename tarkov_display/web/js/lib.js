@@ -332,3 +332,15 @@ export function table({ columns, rows, sortKey, sortDir = "desc", onSort, onRow,
   fill();
   return mount(wrap, h("table.tbl", head, tbody), more);
 }
+
+// -- Tarkov's in-game clock ----------------------------------------------------------
+// Runs 7x real time, starting from Moscow time (UTC+3); the "right" raid time
+// is 12 hours on. Same formula tarkov-time / tarkov.dev use. Factory and The
+// Lab have fixed times and don't follow it.
+export function tarkovTime(left = true, now = Date.now()) {
+  const day = 24 * 3600 * 1000;
+  const ms = (3 * 3600 * 1000 + (left ? 0 : 12 * 3600 * 1000) + now * 7) % day;
+  const hours = Math.floor(ms / 3600000), minutes = Math.floor((ms % 3600000) / 60000);
+  return { hours, minutes, text: `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`,
+    night: hours >= 21 || hours < 6 };
+}

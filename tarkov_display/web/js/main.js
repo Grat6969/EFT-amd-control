@@ -2,7 +2,7 @@
 
 import { openItem, setItemOpener, thumb } from "./components.js";
 import { close as closeItem, openItemPanel, refreshPanel } from "./item.js";
-import { fmt, h, icon, mount, toast, TOKEN } from "./lib.js";
+import { fmt, h, icon, mount, tarkovTime, toast, TOKEN } from "./lib.js";
 import { onGameEvent } from "./link.js";
 import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, setPricewatch, store } from "./store.js";
 
@@ -96,12 +96,21 @@ function drawFoot() {
       : h("span.version", `v${store.boot?.version || ""}`));
 }
 
+// In-game time for both raid times (left / right), updated every few seconds.
+const clockEl = h("span.chip-status.tclock", { title: "Tarkov time for the two raid times. 21:00-06:00 counts as night (Insomnia, Thirsty). Factory and Labs have fixed times." });
+function drawClock() {
+  const a = tarkovTime(true), b = tarkovTime(false);
+  mount(clockEl, icon(a.night && b.night ? "eye" : "sun", 14),
+    h("span" + (a.night ? ".tnight" : ""), a.text), h("span.muted", " / "), h("span" + (b.night ? ".tnight" : ""), b.text));
+}
+
 function drawStatus() {
   const st = store.state || {};
   const watcher = st.watcher || "";
   const active = watcher.includes("applied");
   const pricesAge = st.prices?.updated ? fmt.ago(st.prices.updated) : "never";
   mount(statusEl,
+    clockEl,
     h("a.chip-status" + (active ? ".on" : ""), { href: "#/display", title: watcher },
       h("span.dot"), active ? `Display: ${st.profile}` : st.paused ? "Display paused" : "Game not focused"),
     h("span.chip-status" + (st.prices?.error && !st.prices?.count ? ".bad" : ""), { title: st.prices?.error || "Flea and trader prices" },
@@ -255,6 +264,8 @@ async function boot() {
   });
   window.addEventListener("hashchange", route);
   setInterval(drawStatus, 30000);
+  drawClock();
+  setInterval(drawClock, 4000);
   connect();
   await route();
 }

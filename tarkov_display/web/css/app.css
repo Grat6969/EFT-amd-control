@@ -683,3 +683,7 @@ body.popout #app { display: block; }
 .lk-mark.unknown { color: var(--muted); background: var(--panel-2); }
 .standing-note { margin-bottom: 10px; }
 .q-block { color: var(--warn); }
+
+/* Tarkov clock in the top bar (main.js) */
+.tclock { font-variant-numeric: tabular-nums; gap: 4px; }
+.tclock .tnight { color: var(--info); }
