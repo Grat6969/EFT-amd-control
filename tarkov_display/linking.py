@@ -135,7 +135,7 @@ class GameLink:
         f = self.follower
         return {
             "enabled": logs.enabled, "path": logs.path, "autoMap": logs.auto_map,
-            "refreshAfterRaid": logs.refresh_after_raid,
+            "refreshAfterRaid": logs.refresh_after_raid, "packCheck": logs.pack_check,
             "folder": str(found) if found else None,
             "detected": str(gamelogs.find_logs_folder() or "") or None,
             "session": f.session.name if f and f.session else None,
@@ -162,6 +162,8 @@ class GameLink:
             logs.auto_map = bool(body["autoMap"])
         if "refreshAfterRaid" in body:
             logs.refresh_after_raid = bool(body["refreshAfterRaid"])
+        if "packCheck" in body:
+            logs.pack_check = bool(body["packCheck"])
         self.web.app.save()
         if restart:
             self.start_logs()
@@ -202,6 +204,24 @@ class GameLink:
                     self.push_completed(mode, new)
             if history:
                 return
+        elif ev.kind == "matching":
+            if history:
+                return
+            mode = ev.mode or self.cfg.game_mode
+            the_map = next((m for m in self.data_for(mode, "maps", fetch=True) or []
+                            if (m.get("nameId") or "").lower() == (ev.data.get("map") or "").lower()), None)
+            if the_map:
+                payload.update(name=the_map.get("name"), normalizedName=the_map.get("normalizedName"), mapId=the_map.get("id"))
+                if mode == self.cfg.game_mode:
+                    try:
+                        kit = self.web.pack_check(the_map["id"])
+                    except Exception:
+                        log.debug("pack check failed", exc_info=True)
+                        kit = None
+                    if kit and (kit["bring"] or kit["quests"]):
+                        payload["kit"] = kit
+            self.web.publish("gamelog", payload)
+            return  # not worth a line in the event list
         elif ev.kind in ("raid", "raid_end"):
             if history:
                 return

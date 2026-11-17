@@ -306,6 +306,77 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
     }
 
 
+# -- pre-raid pack check --------------------------------------------------------------------
+
+def raid_kit(tasks: List[dict], progress: dict, map_id: str) -> dict:
+    """What to take into a raid on ``map_id`` for your raid plan (pinned
+    quests; accepted ones if nothing is pinned): keys, markers, items to place
+    or use, weapons. Like the Raid plan page's kit list."""
+    states = quest_states(tasks, progress)
+    pinned = [t for t in _objs(tasks) if t.get("id") in set(progress.get("pinned") or []) and states.get(t.get("id")) != "done"]
+    source = "pinned"
+    if not pinned:
+        pinned = [t for t in _objs(tasks) if t.get("id") in set(progress.get("accepted") or []) and states.get(t.get("id")) == "available"]
+        source = "accepted"
+    owned = progress.get("owned") or {}
+    bring: Dict[str, dict] = {}
+    quests = []
+
+    def add(key: str, kind: str, items: List[dict], count: int, quest: str) -> None:
+        e = bring.setdefault(key, {"kind": kind, "items": [i.get("name") or i.get("shortName") or "?" for i in items],
+                                   "ids": [i.get("id") for i in items], "count": 0, "quests": []})
+        e["count"] += count
+        if quest not in e["quests"]:
+            e["quests"].append(quest)
+
+    for task in pinned:
+        here = False
+        for o in _objs(task.get("objectives")):
+            if objective_done(o, progress):
+                continue
+            ids = objective_map_ids(o)
+            if ids and map_id not in ids:
+                continue
+            if not ids and (task.get("map") or {}).get("id") not in (None, map_id):
+                continue
+            here = here or bool(ids) or (task.get("map") or {}).get("id") == map_id
+            name, n = task.get("name") or "?", max(1, o.get("count") or 1) if isinstance(o.get("count"), int) else 1
+            for group in key_groups(o):
+                add("key:" + "|".join(sorted(k.get("id") or "" for k in group)), "Key", group, 1, name)
+            marker = (o.get("markerItem") or {}) if isinstance(o.get("markerItem"), dict) else {}
+            if o.get("type") == "mark" and marker:
+                add("mark:" + (marker.get("id") or ""), "Marker", [marker], 1, name)
+            if o.get("type") == "plantItem" and _objs(o.get("items")):
+                items = _objs(o.get("items"))
+                add("plant:" + "|".join(sorted(i.get("id") or "" for i in items)), "To place", items, n, name)
+            if o.get("type") == "useItem" and _objs(o.get("useAny")):
+                items = _objs(o.get("useAny"))
+                add("use:" + "|".join(sorted(i.get("id") or "" for i in items)), "To use", items, n, name)
+            if o.get("type") == "shoot" and _objs(o.get("usingWeapon")):
+                items = _objs(o.get("usingWeapon"))
+                add("weapon:" + "|".join(sorted(i.get("id") or "" for i in items)), "Weapon", items, 1, name)
+        if here:
+            quests.append(task.get("name"))
+    for e in bring.values():
+        e["have"] = any(owned.get(i) for i in e["ids"] if i)
+    order = {"Key": 0, "Marker": 1, "To place": 2, "To use": 3, "Weapon": 4}
+    return {"source": source, "quests": quests,
+            "bring": sorted(bring.values(), key=lambda e: (order.get(e["kind"], 9), e["items"][0] if e["items"] else ""))}
+
+
+def kit_lines(kit: dict, limit: int = 8) -> List[str]:
+    """Short lines for a popup: "Key: Dorm room 314 marked key (missing)"."""
+    out = []
+    for e in kit["bring"][:limit]:
+        names = _join(e["items"][:2]) + (f" (+{len(e['items']) - 2} more)" if len(e["items"]) > 2 else "")
+        count = f" ×{e['count']}" if e["count"] > 1 else ""
+        flag = "" if e["kind"] != "Key" else (" ✓" if e["have"] else " (not ticked as owned)")
+        out.append(f"{e['kind']}: {names}{count}{flag}")
+    if len(kit["bring"]) > limit:
+        out.append(f"+{len(kit['bring']) - limit} more on the Raid plan page")
+    return out
+
+
 # -- the export ----------------------------------------------------------------------------
 
 def _story_lines(progress: dict) -> List[str]:

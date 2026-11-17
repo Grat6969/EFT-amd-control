@@ -51,7 +51,7 @@ SESSION_FOLDER = re.compile(r"^log_(\d{4})\.(\d{1,2})\.(\d{1,2})_(\d{1,2})-(\d{1
 
 @dataclass
 class Event:
-    kind: str                 # "mode" | "quest" | "raid" | "raid_end" | "flea"
+    kind: str                 # "mode" | "matching" | "quest" | "raid" | "raid_end" | "flea"
     time: str                 # "2025-11-20 19:45:12" as written in the log (local time)
     data: Dict = field(default_factory=dict)
     mode: Optional[str] = None  # game mode the event happened in, when known
@@ -201,6 +201,11 @@ def parse_entry(when: str, header: str, body: str) -> Optional[Event]:
         m = re.search(r"Session mode:\s*([^\s|]+)", header)
         mode = MODES.get(m.group(1).lower(), "unknown") if m else "unknown"
         return Event("mode", when, {"gameMode": mode}, mode)
+    if "scene preset path:" in header:
+        # Written a couple of seconds after you press Ready, before the queue:
+        # "scene preset path:maps/customs_preset.bundle rcid:bigmap.scenespreset.asset"
+        m = re.search(r"rcid:([A-Za-z0-9_-]+)\.scenespreset", header)
+        return Event("matching", when, {"map": m.group(1) if m else None})
     if "TRACE-NetworkGameCreate profileStatus" in header:
         loc = re.search(r"Location:\s*([^,'\s]+)", header)
         raid = re.search(r"shortId:\s*([A-Za-z0-9]+)", header)
