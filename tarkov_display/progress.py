@@ -35,6 +35,12 @@ DEFAULT = {
     "advisor": {"kit": "", "roubles": 0, "goal": "", "notes": ""},
     # Story chapters (see story.py): finished step ids, and a note per chapter (choices made).
     "story": {"steps": [], "notes": {}},
+    # Trader id -> {"level": loyalty level (0 = not unlocked), "rep": standing}. Empty = not set
+    # up yet, and quest availability ignores trader requirements.
+    "traders": {},
+    # Quests the game's logs say you accepted (and haven't finished) or failed.
+    "accepted": [],
+    "failed": [],
 }
 
 NOTE_LIMIT = 500
@@ -46,6 +52,26 @@ LIMITS = {"player_level": (1, 79), "intel_center": (0, 3), "hideout_management":
 
 class ProgressError(ValueError):
     pass
+
+
+def _trader(data: dict, base: dict) -> dict:
+    """Loyalty level 0-4 and reputation -7..10 (a standing of 0.42 is kept to 2 decimals)."""
+    out = dict(base)
+    if "level" in data:
+        out["level"] = _int(data["level"], 0, 4)
+    if "rep" in data:
+        rep = data["rep"]
+        if rep is None or rep == "":
+            out.pop("rep", None)
+        else:
+            try:
+                rep = float(rep)
+            except (TypeError, ValueError):
+                raise ProgressError(f"not a number: {rep!r}") from None
+            if not math.isfinite(rep):
+                raise ProgressError("bad reputation")
+            out["rep"] = round(max(-7.0, min(10.0, rep)), 2)
+    return out
 
 
 def _advisor(data, base: dict, strict: bool = False) -> dict:
@@ -114,6 +140,18 @@ def _clean(data: dict) -> dict:
                 if isinstance(k, str) and ID.match(k) and isinstance(v, (int, float)) and math.isfinite(v) and v > 0
             }
     out["advisor"] = _advisor(data.get("advisor"), out["advisor"])
+    traders = data.get("traders") if isinstance(data.get("traders"), dict) else {}
+    out["traders"] = {}
+    for tid, v in traders.items():
+        if isinstance(tid, str) and ID.match(tid) and isinstance(v, dict):
+            try:
+                out["traders"][tid] = _trader(v, {})
+            except ProgressError:
+                pass
+    for key in ("accepted", "failed"):
+        values = data.get(key)
+        if isinstance(values, list):
+            out[key] = sorted({v for v in values if isinstance(v, str) and ID.match(v)} - set(out["tasks"]))
     story = data.get("story") if isinstance(data.get("story"), dict) else {}
     steps = story.get("steps")
     notes = story.get("notes")
@@ -168,6 +206,8 @@ class Progress:
                 d[kind] = sorted(current)
                 if kind == "tasks" and op.get("done"):  # finished quests leave the raid plan
                     d["pinned"] = [t for t in d["pinned"] if t not in ids]
+                    for key in ("accepted", "failed"):
+                        d[key] = [t for t in d.get(key, []) if t not in ids]
             elif kind == "pin":
                 ids = set(_ids(op.get("ids")))
                 current = set(d["pinned"])
@@ -209,6 +249,22 @@ class Progress:
                     d["faction"] = op["faction"]
             elif kind == "advisor":
                 d["advisor"] = _advisor(op.get("settings"), d.get("advisor") or DEFAULT["advisor"], strict=True)
+            elif kind == "trader":
+                tid = op.get("id")
+                if not isinstance(tid, str) or not ID.match(tid):
+                    raise ProgressError("bad trader id")
+                traders = d.setdefault("traders", {})
+                traders[tid] = _trader(op, traders.get(tid, {}))
+            elif kind == "quest_status":
+                # From the game logs: "accepted", "failed" or "none" (neither).
+                ids, status = set(_ids(op.get("ids"))), op.get("status")
+                if status not in ("accepted", "failed", "none"):
+                    raise ProgressError("bad quest status")
+                for key in ("accepted", "failed"):
+                    current = set(d.get(key, [])) - ids
+                    if status == key:
+                        current |= ids - set(d["tasks"])
+                    d[key] = sorted(current)
             elif kind == "story":
                 story = d.setdefault("story", {"steps": [], "notes": {}})
                 ids = set(_ids(op.get("ids")))
@@ -233,6 +289,10 @@ class Progress:
                     d[what] = {}
                 elif what == "story":
                     d["story"] = {"steps": [], "notes": {}}
+                elif what in ("accepted", "failed"):
+                    d[what] = []
+                elif what == "traders":
+                    d["traders"] = {}
                 else:
                     raise ProgressError("nothing to reset")
             elif kind == "import":

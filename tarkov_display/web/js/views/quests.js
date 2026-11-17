@@ -1,7 +1,7 @@
 import { itemChip, traderAvatar } from "../components.js";
 import { badge, button, empty, errorBox, ext, fmt, h, icon, loading, local, mount, searchInput, segmented, select, stat, toast, toggle } from "../lib.js";
 import { failView, neededKeysView, objectiveView, objs, taskMapIds } from "../questinfo.js";
-import { dataset, on, prerequisites, questContext, questState, setProgress, store } from "../store.js";
+import { dataset, on, prerequisites, questContext, questState, setProgress, store, traderBlocks } from "../store.js";
 
 const state = {
   q: "", status: local.get("quests.status", "available"), trader: null, map: "all",
@@ -43,12 +43,14 @@ export default {
         stat("Available now", count("available"), { kind: "accent", sub: `at level ${ctx.level}` }),
         stat("Done", `${count("done")} / ${mine.length}`, { sub: fmt.pct(count("done") / Math.max(1, mine.length)) }),
         stat("Kappa", `${kappa.filter((t) => ctx.done.has(t.id)).length} / ${kappa.length}`, { sub: "quests needed for Kappa" }),
-        stat("Locked", count("locked"), { sub: "level or earlier quests" }));
+        stat("Locked", count("locked"), { sub: Object.keys(ctx.traders).length ? "level, traders or earlier quests" : "level or earlier quests" }));
       drawProfile();
 
       let rows = mine.filter((t) => {
         const s = questState(t, ctx);
-        if (state.status !== "all" && s !== state.status) return false;
+        if (state.status === "accepted") {
+          if (s === "done" || !(ctx.accepted.has(t.id) || ctx.failed.has(t.id))) return false;
+        } else if (state.status !== "all" && s !== state.status) return false;
         if (state.trader && t.trader?.id !== state.trader) return false;
         if (state.map !== "all" && !taskMapIds(t).includes(state.map)) return false;
         if (state.kappa && !t.kappaRequired) return false;
@@ -61,7 +63,8 @@ export default {
         }
         return true;
       });
-      rows.sort((a, b) => (a.minPlayerLevel || 0) - (b.minPlayerLevel || 0) || a.trader?.name.localeCompare(b.trader?.name) || a.name.localeCompare(b.name));
+      const inGame = (t) => (ctx.failed.has(t.id) ? 0 : ctx.accepted.has(t.id) ? 1 : 2);
+      rows.sort((a, b) => inGame(a) - inGame(b) || (a.minPlayerLevel || 0) - (b.minPlayerLevel || 0) || a.trader?.name.localeCompare(b.trader?.name) || a.name.localeCompare(b.name));
       const total = rows.length;
       rows = rows.slice(0, state.shown);
       mount(list,
@@ -77,12 +80,14 @@ export default {
             onchange: (e) => setProgress({ op: "profile", player_level: Number(e.target.value) || 1 }) })),
         segmented([["USEC", "USEC"], ["BEAR", "BEAR"]], p.faction, (v) => setProgress({ op: "profile", faction: v })),
         h("span.spacer"),
+        Object.keys(p.traders || {}).length ? null
+          : h("a.muted.small", { href: "#/traders" }, icon("info", 13), " Set your trader levels on the Traders page to hide quests you can't take yet"),
         h("span.muted.small", "Progress is saved on this PC, separately for PvP and PvE."));
     };
 
     const filters = h("div.toolbar",
       searchInput("Search quests, objectives, maps…", state.q, (v) => { state.q = v; state.shown = 60; draw(); }),
-      segmented([["available", "Available"], ["locked", "Locked"], ["done", "Done"], ["all", "All"]], state.status,
+      segmented([["available", "Available"], ["accepted", "Accepted"], ["locked", "Locked"], ["done", "Done"], ["all", "All"]], state.status,
         (v) => { state.status = v; state.shown = 60; redrawFilters(); draw(); }),
       select([["all", "All maps"], ...maps.map((m) => [m.id, m.name])], state.map, (v) => { state.map = v; draw(); }),
       toggle("Kappa", state.kappa, (v) => { state.kappa = v; draw(); }, "Only quests needed for the Kappa container"),
@@ -92,7 +97,7 @@ export default {
     const traderChips = h("div.filters");
     const redrawFilters = () => {
       const seg = filters.querySelector(".seg");
-      if (seg) [...seg.children].forEach((b, i) => b.classList.toggle("on", ["available", "locked", "done", "all"][i] === state.status));
+      if (seg) [...seg.children].forEach((b, i) => b.classList.toggle("on", ["available", "accepted", "locked", "done", "all"][i] === state.status));
       mount(traderChips,
         h("button.fchip" + (!state.trader ? ".on" : ""), { type: "button", onclick: () => { state.trader = null; redrawFilters(); draw(); } }, "All traders"),
         traders.map((t) => h("button.fchip" + (state.trader === t.id ? ".on" : ""), {
@@ -132,12 +137,15 @@ function questCard(t, ctx) {
         h("div.q-name", t.name,
           t.kappaRequired ? badge("Kappa", "accent") : null,
           t.lightkeeperRequired ? badge("Lightkeeper", "info") : null,
-          t.factionName && t.factionName !== "Any" ? badge(t.factionName, "muted") : null),
+          t.factionName && t.factionName !== "Any" ? badge(t.factionName, "muted") : null,
+          !done && ctx.failed.has(t.id) ? badge("Failed: restart it", "bad", "The game's logs say you failed this quest") : null,
+          !done && !ctx.failed.has(t.id) && ctx.accepted.has(t.id) ? badge("Accepted", "good", "The game's logs say you've taken this quest") : null),
         h("div.q-meta",
           h("span", t.trader?.name || ""),
           t.minPlayerLevel ? h("span", `Level ${t.minPlayerLevel}+`) : null,
           t.map ? h("span", t.map.name) : null,
-          t.experience ? h("span", `${fmt.num(t.experience)} XP`) : null)),
+          t.experience ? h("span", `${fmt.num(t.experience)} XP`) : null,
+          s === "locked" && traderBlocks(t, ctx.traders).length ? h("span.q-block", `Needs ${traderBlocks(t, ctx.traders).join(", ")}`) : null)),
       h("span.state-pill." + s, s === "available" ? "Available" : s === "done" ? "Done" : "Locked"),
       pin,
       action,

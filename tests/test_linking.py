@@ -227,7 +227,7 @@ def test_scan_and_apply_old_logs(web, tmp_path):
     web.link.logs_change({"path": str(logs)})
     summary = web.link.scan()
     assert summary["sessions"] == 1
-    assert summary["modes"]["regular"] == {"finished": 1, "new": 3}  # + 2 earlier quests
+    assert summary["modes"]["regular"] == {"finished": 1, "new": 3, "accepted": 0, "failed": 0}  # + 2 earlier quests
     assert web.progress.snapshot()["tasks"] == []  # nothing changes until you apply
     assert web.link.apply_scan() == {"added": {"regular": 3}}
     assert len(web.progress.snapshot()["tasks"]) == 3

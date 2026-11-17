@@ -98,6 +98,19 @@ class GameLink:
                     self.web.publish("progress", snap)
         return new
 
+    def set_quest_status(self, mode: str, ids: List[str], status: str) -> None:
+        """Accepted or failed in game, per the logs (finished quests are left alone)."""
+        with self.lock:
+            progress = self.progress_for(mode)
+            snap = progress.snapshot()
+            ids = [i for i in ids if i not in snap["tasks"]]
+            key = status if status in ("accepted", "failed") else None
+            if not ids or (key and all(i in snap.get(key, []) for i in ids)):
+                return
+            snap = progress.apply({"op": "quest_status", "ids": ids, "status": status})
+            if mode == self.cfg.game_mode:
+                self.web.publish("progress", snap)
+
     # -- game logs --------------------------------------------------------------
 
     def start_logs(self) -> None:
@@ -178,6 +191,8 @@ class GameLink:
             mode = ev.mode or self.cfg.game_mode
             name, trader = self._quest_name(ev.data["questId"], mode)
             payload.update(name=name, trader=trader)
+            if ev.data["status"] in ("started", "failed") and mode in GAME_MODES:
+                self.set_quest_status(mode, [ev.data["questId"]], "accepted" if ev.data["status"] == "started" else "failed")
             if ev.data["status"] == "finished" and mode in GAME_MODES:
                 new = self.finish_quests(mode, [ev.data["questId"]])
                 payload["added"] = len(new)
@@ -215,6 +230,13 @@ class GameLink:
                 return
             item = next((i for i in self.web.app.prices.items if i.id == ev.data.get("itemId")), None)
             payload["name"] = item.name if item else None
+            # Sold something your quests or hideout still need? Say so.
+            try:
+                needs = self.web.item_needs(ev.data.get("itemId") or "", limit=3) if ev.mode in (None, self.cfg.game_mode) else None
+            except Exception:
+                needs = None
+            if needs:
+                payload["needed"] = [f"{label.title()}: {text}" if label else text for label, text in needs]
         if not repeat:
             self.events.appendleft(payload)
         self.web.publish("gamelog", payload)
@@ -243,6 +265,8 @@ class GameLink:
             summary["modes"][mode] = {
                 "finished": len(found["finished"]),
                 "new": len([q for q in set(found["finished"]) | implied if q not in done]),
+                "accepted": len([q for q, st in found.get("latest", {}).items() if st == "started" and q not in done]),
+                "failed": len([q for q, st in found.get("latest", {}).items() if st == "failed" and q not in done]),
             }
         self.scan_result = {"folder": str(folder), "result": result, "summary": summary}
         return summary
@@ -254,6 +278,12 @@ class GameLink:
         for mode, found in self.scan_result["result"]["modes"].items():
             if mode in GAME_MODES and found["finished"]:
                 added[mode] = len(self.finish_quests(mode, found["finished"]))
+            if mode in GAME_MODES:
+                latest = found.get("latest", {})
+                for status, key in (("started", "accepted"), ("failed", "failed")):
+                    ids = [q for q, st in latest.items() if st == status]
+                    if ids:
+                        self.set_quest_status(mode, ids, key)
         return {"added": added}
 
     # -- TarkovTracker -------------------------------------------------------------

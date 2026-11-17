@@ -207,7 +207,42 @@ export function searchItems(query, limit = 50) {
 export function questContext(tasks) {
   const p = store.progress || { tasks: [], player_level: 1, faction: "USEC" };
   return { byId: new Map(tasks.map((t) => [t.id, t])), done: new Set(p.tasks), level: p.player_level,
-    faction: p.faction, memo: new Map() };
+    faction: p.faction, memo: new Map(), traders: p.traders || {},
+    accepted: new Set(p.accepted || []), failed: new Set(p.failed || []) };
+}
+
+// Traders you unlock through quests: assumed locked until you set a level
+// (the others start at loyalty level 1). Mirrors advisor.py.
+const LOCKED_TRADERS = new Set(["lightkeeper"]);
+const CMP = { ">=": (a, b) => a >= b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, "<": (a, b) => a < b, "=": (a, b) => a === b, "==": (a, b) => a === b };
+
+function traderKey(t) {
+  return String(t?.normalizedName || t?.name || "").toLowerCase().replace(/ /g, "-");
+}
+
+export function traderLevel(trader, traders = store.progress?.traders || {}) {
+  const e = traders[trader?.id || ""];
+  if (e && e.level !== undefined) return e.level;
+  return LOCKED_TRADERS.has(traderKey(trader)) ? 0 : 1;
+}
+
+// Why your trader standing keeps a quest locked ([] = it doesn't). Nothing
+// blocks until you've entered your trader levels (Traders page).
+export function traderBlocks(task, traders = store.progress?.traders || {}) {
+  if (!traders || !Object.keys(traders).length) return [];
+  const out = [];
+  if (task.trader && traderLevel(task.trader, traders) < 1) out.push(`${task.trader.name} not unlocked`);
+  for (const r of task.traderRequirements || []) {
+    if (!r?.trader || typeof r.value !== "number") continue;
+    const test = CMP[r.compareMethod || ">="] || CMP[">="];
+    const kind = r.requirementType || "level";
+    if (kind === "level" && !test(traderLevel(r.trader, traders), r.value)) out.push(`${r.trader.name} LL${r.value}`);
+    if (kind === "reputation") {
+      const rep = traders[r.trader.id]?.rep;
+      if (rep !== undefined && rep !== null && !test(rep, r.value)) out.push(`${r.trader.name} rep ${r.value}`);
+    }
+  }
+  return out;
 }
 
 export function forFaction(task, faction) {
@@ -220,7 +255,7 @@ export function questState(task, ctx, depth = 0) {
   let state = "available";
   if (ctx.done.has(task.id)) state = "done";
   else if (!forFaction(task, ctx.faction)) state = "other";
-  else if ((task.minPlayerLevel || 0) > ctx.level) state = "locked";
+  else if ((task.minPlayerLevel || 0) > ctx.level || traderBlocks(task, ctx.traders).length) state = "locked";
   else {
     for (const r of task.taskRequirements || []) {
       const req = ctx.byId.get(r.task?.id);

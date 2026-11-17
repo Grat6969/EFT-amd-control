@@ -338,6 +338,11 @@ class WebApp:
     def story_data(self) -> dict:
         return story.payload()
 
+    def lightkeeper_state(self) -> dict:
+        return {"checklist": advisor.lightkeeper_checklist(self.store.get("tasks", 20)["data"],
+                                                           self.store.get("traders", 20)["data"],
+                                                           self.progress.snapshot())}
+
     # -- "Ask Claude" export (see advisor.py) ----------------------------
 
     def _item_names(self) -> dict:
@@ -369,15 +374,26 @@ class WebApp:
         return self.link.folder or gamelogs.default_folder(self.app.config.logs.path)
 
     def advisor_text(self) -> str:
+        history = advisor.history_for(self._logs_folder())
+        for sale in (history.get("sales") or [])[:10]:  # sold something still needed?
+            try:
+                needs = self.item_needs(sale.get("itemId") or "", limit=2) if sale.get("mode") in (None, self.app.config.game_mode) else None
+            except Exception:
+                needs = None
+            if needs:
+                sale["needed"] = [text for _label, text in needs]
+        prices = {i.id: {"flea": i.last_low or i.avg24h, "banned": i.flea_banned} for i in self.app.prices.items}
         return advisor.build(
             progress=self.progress.snapshot(),
             tasks=self.store.get("tasks", 30)["data"],
             stations=self.store.get("hideout", 20)["data"],
             maps=self.store.get("maps", 20)["data"],
-            history=advisor.history_for(self._logs_folder()),
+            history=history,
             item_names=self._item_names(),
             game_mode=self.app.config.game_mode,
             app_version=__version__,
+            traders=self.store.get("traders", 20)["data"],
+            prices=prices,
         )
 
     def advisor_export(self) -> dict:

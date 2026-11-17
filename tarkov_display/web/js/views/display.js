@@ -101,6 +101,10 @@ export default {
       const a = store.display.auto;
       const values = { ...a };
       mount(auto,
+        h("div.note.warn", { style: { marginBottom: "10px" } }, icon("alert", 16), h("div",
+          h("strong", "Ban risk: keep this off. "),
+          "In 2023 Battlestate blocked DWM_lut (a screen colour filter) for giving \u201can unfair advantage\u201d and said any similar program would be treated as a Terms of Service breach and could get you banned. ",
+          "A tool that watches the screen and brightens dark scenes fits that description. Fixed display profiles are less clear-cut; use them at your own risk.")),
         toggle("Boost gamma and brightness in dark areas", a.enabled, (v) => displayChange({ op: "auto", settings: { enabled: v } })),
         h("div.muted.small", { style: { margin: "6px 0 10px" } },
           "Reads 5 small patches of the Tarkov window 4 times a second and eases in extra gamma and brightness when the scene is dark. Use Borderless window mode."),

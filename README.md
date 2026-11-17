@@ -111,7 +111,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Achievements** | All achievements with rarity and how many players have them; tick off yours |
 | **Maps** | A marker for every quest's objectives on its map, named and coloured per quest (see [Quest markers](#quest-markers)), zoomable 2D/3D map images, your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
 | **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
-| **Traders** | Restock countdowns, loyalty level requirements, everything each trader sells |
+| **Traders** | Your loyalty level and reputation with each trader (so quests you can't take yet stay locked), a Road to Lightkeeper checklist, restock countdowns, loyalty level requirements, everything each trader sells |
 | **Display** | Display profiles, auto-boost and price-check settings |
 | **Settings** | PvP / PvE, your level and faction, flea fee settings, game log reader, TarkovTracker, data refresh, updates, backup and restore |
 
@@ -185,7 +185,9 @@ Tarkov writes plain-text log files to the `Logs` folder in its install folder. W
   only (you can turn that off),
 - gets fresh prices from tarkov.dev as soon as a raid ends, so what you brought out shows
   current prices (you can turn that off),
-- shows flea market sales,
+- notes which quests you've accepted or failed in game (Quests page: **Accepted** filter),
+- shows flea market sales, and warns you when you've sold something your quests or hideout
+  still need,
 - warns you if Tarkov is in PvE but the app is showing PvP (or the other way round).
 
 The logs folder is found automatically for launcher and Steam installs; if it isn't, paste
@@ -335,7 +337,13 @@ without the game running.
 **Auto-boost in dark areas** (off by default) reads 5 small patches of the game window
 4 times a second and eases in extra gamma and brightness when the scene is dark. Use
 **Borderless** window mode in Tarkov; in exclusive fullscreen Windows returns black
-screenshots. Note: like any screen-reading tool, use it at your own risk with BattlEye.
+screenshots.
+
+> **Ban risk: keep auto-boost off.** In February 2023 Battlestate blocked DWM_lut (a screen
+> colour filter) for giving "an unfair advantage" and said any similar program would be
+> treated as a breach of the Terms of Service and could lead to a ban. A tool that watches
+> the screen and brightens dark scenes fits that description. Fixed display profiles are
+> less clear-cut; use them at your own risk.
 
 Windows limits how far gamma can move. If high gamma values are refused, double-click
 `enable_full_gamma_range.reg` once and reboot. If the screen ever looks wrong:

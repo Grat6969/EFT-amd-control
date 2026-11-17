@@ -669,3 +669,17 @@ body.popout #app { display: block; }
 .story-note { margin: 12px 0 10px; display: grid; gap: 6px; }
 .story-note .adv-notes { width: 100%; }
 .story-head .grow { flex: 1; min-width: 0; }
+
+/* Your standing + Road to Lightkeeper (views/traders.js) */
+.grid.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.standing-grid { display: grid; gap: 2px; }
+.standing-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid #1b2025; }
+.standing-row:last-child { border-bottom: 0; }
+.standing-row .grow { flex: 1; min-width: 0; }
+.standing-row select { width: 96px; }
+.lk-mark { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.lk-mark.ok { color: var(--good); background: var(--good-soft); }
+.lk-mark.no { color: var(--bad); background: var(--bad-soft); }
+.lk-mark.unknown { color: var(--muted); background: var(--panel-2); }
+.standing-note { margin-bottom: 10px; }
+.q-block { color: var(--warn); }
