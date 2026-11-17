@@ -170,3 +170,90 @@ def test_raid_end_from_both_logs_is_listed_once(webapp, monkeypatch):
     link._on_event(gamelogs.Event("raid", "2026-11-17 13:23:16", {"map": "Shoreline", "online": True}), False)
     link._on_event(gamelogs.Event("raid_end", "2026-11-17 13:37:54", {"map": None, "raidId": None}), False)
     assert len([e for e in link.events if e["kind"] == "raid_end"]) == 2
+
+
+# -- trader standing, accepted/failed quests, export trimming ---------------------------------
+
+def _trader_task():
+    return {"id": "q-lk", "name": "LK quest", "trader": {"id": "t-lk", "name": "Lightkeeper", "normalizedName": "lightkeeper"},
+            "traderRequirements": [], "taskRequirements": [], "objectives": []}
+
+
+def test_trader_requirements_lock_quests():
+    pk = {"id": "t-pk", "name": "Peacekeeper", "normalizedName": "peacekeeper"}
+    task = {"id": "q1", "name": "Needs PK3", "trader": pk, "objectives": [], "taskRequirements": [],
+            "traderRequirements": [{"trader": pk, "requirementType": "level", "compareMethod": ">=", "value": 3},
+                                   {"trader": pk, "requirementType": "reputation", "compareMethod": ">=", "value": 0.5}]}
+    lk = _trader_task()
+    base = {"player_level": 40, "faction": "USEC", "tasks": []}
+    # Nothing entered: trader requirements are ignored, as before.
+    assert advisor.quest_states([task, lk], base) == {"q1": "available", "q-lk": "available"}
+    standing = dict(base, traders={"t-pk": {"level": 2}})
+    assert advisor.trader_blocks(task, standing) == ["Peacekeeper LL3"]  # rep not entered: not held against you
+    assert advisor.trader_blocks(lk, standing) == ["Lightkeeper not unlocked"]
+    standing["traders"]["t-pk"] = {"level": 3, "rep": 0.4}
+    assert advisor.trader_blocks(task, standing) == ["Peacekeeper rep 0.5"]
+    standing["traders"]["t-pk"]["rep"] = 0.51
+    standing["traders"]["t-lk"] = {"level": 1}
+    assert advisor.quest_states([task, lk], standing) == {"q1": "available", "q-lk": "available"}
+
+
+def test_lightkeeper_checklist():
+    traders = [{"id": f"t-{k}", "name": k.title(), "normalizedName": k} for k in advisor.LK_MAIN_TRADERS + ("fence",)]
+    tasks = [{"id": "ttl1", "name": "To the Light - Trust but Verify", "trader": {"name": "Mechanic"}}]
+    progress = {"traders": {"t-prapor": {"level": 3}, "t-skier": {"level": 2}, "t-fence": {"rep": 2.5}},
+                "tasks": ["ttl1"], "story": {"steps": ["tour-13"]}}
+    rows = {r["label"]: r for r in advisor.lightkeeper_checklist(tasks, traders, progress)}
+    assert rows["Prapor loyalty level 3"]["ok"] is True and rows["Skier loyalty level 3"]["ok"] is False
+    assert rows["Jaeger loyalty level 3"]["ok"] is None and rows["Jaeger loyalty level 3"]["detail"] == "not set"
+    assert rows["Fence reputation 2 or more"]["ok"] is True
+    assert rows["Lighthouse unlocked (Tour: pay Mechanic)"]["ok"] is True
+    assert rows["Quest: To the Light - Trust but Verify"]["ok"] is True
+
+
+def test_export_orders_accepted_and_trims():
+    tasks, stations, maps = demo_data()
+    maps = maps + [{"id": "tut", "name": "Ground Zero Tutorial", "normalizedName": "gzt"}]
+    shoot = next(t for t in tasks if t["name"] == "Shootout Picnic")
+    tasks = tasks + [dict(shoot, id="tut-q", name="Tutorial thing",
+                          objectives=[dict(shoot["objectives"][0], id="o-tut", maps=[{"id": "tut", "name": "Ground Zero Tutorial"}])])]
+    from tarkov_display.linking import prerequisite_ids
+
+    done = list({x for p in [shoot["id"]] for x in prerequisite_ids(p, tasks)})
+    progress = {"player_level": 30, "faction": "USEC", "tasks": done, "accepted": [shoot["id"]],
+                "failed": [], "pinned": [], "objectives": {}, "owned": {}, "advisor": {"goal": "Lightkeeper"}}
+    text = advisor.build(progress=progress, tasks=tasks, stations=stations, maps=maps,
+                         history={"sales": [{"time": "2026-11-17 13:00:00", "itemId": "x", "roubles": 5, "needed": ["Vents 3 x5"]}]})
+    assert "Ground Zero Tutorial" not in text.split("## Maps (tarkov.dev)")[0]
+    assert "**Shootout Picnic** (Prapor, Kappa, accepted in game)" in text
+    assert "## Road to Lightkeeper" in text and "Trader levels: not entered" in text
+    assert "⚠️ still needed: Vents 3 x5" in text
+    progress["failed"] = [shoot["id"]]
+    assert "## Failed quests (restart at the trader)" in advisor.build(progress=progress, tasks=tasks, stations=stations, maps=maps)
+
+
+def test_quest_status_from_logs(webapp):
+    from tarkov_display import gamelogs as gl
+
+    tasks = webapp.store.refresh("tasks")["data"]
+    qid = tasks[3]["id"]
+    webapp.link._on_event(gl.Event("quest", "2026-11-17 13:00:00", {"questId": qid, "status": "started"}, "regular"), True)
+    assert qid in webapp.progress.snapshot()["accepted"]
+    webapp.link._on_event(gl.Event("quest", "2026-11-17 13:30:00", {"questId": qid, "status": "failed"}, "regular"), False)
+    snap = webapp.progress.snapshot()
+    assert qid in snap["failed"] and qid not in snap["accepted"]
+    webapp.link._on_event(gl.Event("quest", "2026-11-17 14:00:00", {"questId": qid, "status": "finished"}, "regular"), False)
+    snap = webapp.progress.snapshot()
+    assert qid in snap["tasks"] and qid not in snap["failed"]
+
+
+def test_selling_a_needed_item_warns(webapp):
+    from tarkov_display import gamelogs as gl
+
+    webapp.store.refresh("tasks"), webapp.store.refresh("hideout")
+    published = []
+    webapp.publish = lambda event, data: published.append((event, data))
+    ledx = next(i for i in webapp.app.prices.items if i.short_name == "LEDX")
+    webapp.link._on_event(gl.Event("flea", "2026-11-17 13:00:00", {"itemId": ledx.id, "count": 1, "roubles": 1}, "regular"), False)
+    event = [d for e, d in published if e == "gamelog"][-1]
+    assert any("Private Clinic" in n for n in event["needed"])

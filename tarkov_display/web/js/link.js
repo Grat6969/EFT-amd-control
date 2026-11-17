@@ -52,6 +52,11 @@ export function onGameEvent(e) {
   emit("gamelog", e);
   const d = describeEvent(e);
   if (e.kind === "quest" && e.status === "started") return;  // too chatty
+  if (e.kind === "flea" && e.needed?.length) {
+    toast(`You sold ${e.name || "an item"}, but you still need it: ${e.needed.join("; ")}`, { kind: "warn", timeout: 15000,
+      actionLabel: "Needed items", action: () => { location.hash = "#/needed"; } });
+    return;
+  }
   // The raid you're in also comes with the app's state; set it now so the map
   // shows the raid plan's quest markers straight away.
   if (e.kind === "raid_end") {
@@ -140,14 +145,16 @@ export function logsCard() {
     if (!el || !scan) return;
     const modes = Object.entries(scan.modes || {});
     const totalNew = modes.reduce((s, [, m]) => s + m.new, 0);
+    const inGame = modes.reduce((s, [, m]) => s + (m.accepted || 0) + (m.failed || 0), 0);
     mount(el, h("div.note", { style: { marginTop: "6px" } }, icon("info", 16), h("div",
       h("div", `Read ${scan.sessions} session${scan.sessions === 1 ? "" : "s"}${scan.first ? ` (${scan.first.replace(/^log_/, "").slice(0, 10)} to ${scan.last.replace(/^log_/, "").slice(0, 10)})` : ""}.`),
-      modes.length ? modes.map(([m, r]) => h("div.small", `${MODE[m] || m}: ${r.finished} finished quests found, ${r.new} not marked done yet (including earlier quests).`))
+      modes.length ? modes.map(([m, r]) => h("div.small", `${MODE[m] || m}: ${r.finished} finished quests found, ${r.new} not marked done yet (including earlier quests).`
+        + (r.accepted || r.failed ? ` ${r.accepted || 0} accepted and ${r.failed || 0} failed in game.` : "")))
         : h("div.small", "No finished quests in these logs."),
-      totalNew ? h("div", { style: { marginTop: "8px" } }, button(`Mark ${totalNew} quests done`, async () => {
+      totalNew || inGame ? h("div", { style: { marginTop: "8px" } }, button(totalNew ? `Mark ${totalNew} quests done${inGame ? " and note accepted ones" : ""}` : `Note ${inGame} accepted/failed quests`, async () => {
         const res = await api("gamelog/apply", { method: "POST", body: {} });
         const n = Object.values(res.added).reduce((a, b) => a + b, 0);
-        toast(`Marked ${n} quests done.`, { kind: "good" });
+        toast(n ? `Marked ${n} quests done.` : "Noted which quests you've accepted.", { kind: "good" });
         scan = null;
         mount(el);
       }, { kind: "primary small", iconName: "check" })) : null)));

@@ -431,12 +431,15 @@ def scan_history(folder: Path) -> dict:
         result["sessions"] += 1
         result["first"] = result["first"] or session.name
         result["last"] = session.name
+        quests.sort(key=lambda e: e.time)
         for ev in quests:
             earlier = [m for t, m in modes if t <= ev.time]
             mode = earlier[-1] if earlier else (modes[0][1] if modes else "regular")
-            bucket = result["modes"].setdefault(mode, {"finished": [], "failed": [], "started": []})
+            bucket = result["modes"].setdefault(mode, {"finished": [], "failed": [], "started": [], "latest": {}})
             if ev.data["questId"] not in bucket[ev.data["status"]]:
                 bucket[ev.data["status"]].append(ev.data["questId"])
+            # Sessions are read oldest first: the last word on each quest wins.
+            bucket["latest"][ev.data["questId"]] = ev.data["status"]
     return result
 
 

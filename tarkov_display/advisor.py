@@ -29,6 +29,8 @@ IN_RAID = {"shoot", "extract", "findItem", "findQuestItem", "mark", "plantItem",
            "useItem", "experience"}
 HAND_IN = {"giveItem", "giveQuestItem"}
 KEEP_EXPORTS = 20
+SKIP_MAP_WORDS = ("Tutorial", "Infected")
+PER_MAP = 12  # quests listed per map in the export (accepted and pinned first)
 EXPORT_NAME = re.compile(r"^raidready-\d{4}-\d{2}-\d{2}_\d{4}\.md$")
 
 PROMPT = """\
@@ -73,6 +75,84 @@ def for_faction(task: dict, faction: str) -> bool:
     return task.get("factionName") in (None, "", "Any", faction)
 
 
+# Traders you have to unlock through quests: until you say otherwise, assume
+# they're not unlocked yet (the others start at loyalty level 1).
+LOCKED_TRADERS = {"lightkeeper"}
+CMP = {">=": lambda a, b: a >= b, ">": lambda a, b: a > b, "<=": lambda a, b: a <= b,
+       "<": lambda a, b: a < b, "=": lambda a, b: a == b, "==": lambda a, b: a == b}
+
+
+def _trader_key(trader: Optional[dict]) -> str:
+    trader = trader or {}
+    return (trader.get("normalizedName") or trader.get("name") or "").lower().replace(" ", "-")
+
+
+def trader_level(trader: Optional[dict], progress: dict) -> int:
+    entry = (progress.get("traders") or {}).get((trader or {}).get("id") or "")
+    if entry and "level" in entry:
+        return entry["level"]
+    return 0 if _trader_key(trader) in LOCKED_TRADERS else 1
+
+
+def trader_blocks(task: dict, progress: dict) -> List[str]:
+    """Why your trader standing keeps a quest locked ([] = it doesn't). Only
+    once you've entered your trader levels: before that, nothing blocks."""
+    if not progress.get("traders"):
+        return []
+    out = []
+    giver = task.get("trader")
+    if giver and trader_level(giver, progress) < 1:
+        out.append(f"{giver.get('name')} not unlocked")
+    for r in _objs(task.get("traderRequirements")):
+        trader, kind, value = r.get("trader"), r.get("requirementType") or "level", r.get("value")
+        test = CMP.get(r.get("compareMethod") or ">=", CMP[">="])
+        if not isinstance(value, (int, float)) or not trader:
+            continue
+        if kind == "level":
+            if not test(trader_level(trader, progress), value):
+                out.append(f"{trader.get('name')} LL{value}")
+        elif kind == "reputation":
+            rep = ((progress.get("traders") or {}).get(trader.get("id") or "") or {}).get("rep")
+            if rep is not None and not test(rep, value):
+                out.append(f"{trader.get('name')} rep {value}")
+    return out
+
+
+# Lightkeeper access after patch 1.1.5 (Sept 2026), per community guides.
+LK_MAIN_TRADERS = ("prapor", "therapist", "skier", "peacekeeper", "mechanic", "ragman", "jaeger")
+LK_FENCE_REP = 2.0
+
+
+def lightkeeper_checklist(tasks: Optional[List[dict]], traders: Optional[List[dict]], progress: dict) -> List[dict]:
+    """What's still between you and Lightkeeper: [{label, ok (True/False/None = unknown), detail}]."""
+    out = []
+    by_key = {_trader_key(t): t for t in _objs(traders)}
+    entered = progress.get("traders") or {}
+    for key in LK_MAIN_TRADERS:
+        t = by_key.get(key) or {"name": key.title(), "id": ""}
+        known = t.get("id") in entered and "level" in entered.get(t.get("id"), {})
+        lvl = trader_level(t, progress)
+        out.append({"label": f"{t.get('name')} loyalty level 3", "ok": (lvl >= 3) if known else None,
+                    "detail": f"LL{lvl}" if known else "not set"})
+    fence = by_key.get("fence") or {}
+    rep = (entered.get(fence.get("id") or "") or {}).get("rep")
+    out.append({"label": f"Fence reputation {LK_FENCE_REP:g} or more", "ok": None if rep is None else rep >= LK_FENCE_REP,
+                "detail": "not set" if rep is None else f"{rep:g}"})
+    steps = set((progress.get("story") or {}).get("steps") or [])
+    out.append({"label": "Lighthouse unlocked (Tour: pay Mechanic)", "ok": "tour-13" in steps or None,
+                "detail": "ticked on the Story page" if "tour-13" in steps else "tick it on the Story page"})
+    done = set(progress.get("tasks") or [])
+    chain = [t for t in _objs(tasks) if (t.get("name") or "").lower().startswith("to the light")]
+    for t in chain:
+        out.append({"label": f"Quest: {t.get('name')}", "ok": t.get("id") in done, "detail": (t.get("trader") or {}).get("name") or ""})
+    if not chain:
+        out.append({"label": "Mechanic's \"To the Light\" quest chain", "ok": None,
+                    "detail": "not in tarkov.dev's quest list; check in game"})
+    out.append({"label": "Encoded DSP radio transmitter to get past Zryachiy", "ok": None,
+                "detail": "wear it and don't harm Zryachiy, his followers or Lightkeeper-friendly PMCs"})
+    return out
+
+
 def quest_states(tasks: List[dict], progress: dict) -> Dict[str, str]:
     """"done" | "available" | "locked" | "other" for every quest, like the
     Quests page works it out."""
@@ -88,7 +168,7 @@ def quest_states(tasks: List[dict], progress: dict) -> Dict[str, str]:
             s = "done"
         elif not for_faction(task, faction):
             s = "other"
-        elif (task.get("minPlayerLevel") or 0) > level:
+        elif (task.get("minPlayerLevel") or 0) > level or trader_blocks(task, progress):
             s = "locked"
         else:
             for r in _objs(task.get("taskRequirements")):
@@ -149,16 +229,22 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
     """Available quests grouped by map, keys they need, and quests that
     unlock within a few levels."""
     states = quest_states(tasks, progress)
+    level = progress.get("player_level") or 1
+    # Event, tutorial and high-level variants of maps only clutter the list.
+    skip = {m.get("id") for m in _objs(maps)
+            if any(w in (m.get("name") or "") for w in SKIP_MAP_WORDS) or (m.get("minPlayerLevel") or 0) > level}
     map_names = {m.get("id"): m.get("name") for m in _objs(maps)}
     pinned = set(progress.get("pinned") or [])
+    accepted, failed = set(progress.get("accepted") or []), set(progress.get("failed") or [])
     owned = progress.get("owned") or {}
     groups: Dict[str, List[dict]] = {}
     keys: Dict[str, dict] = {}
     soon = []
-    level = progress.get("player_level") or 1
     for task in _objs(tasks):
         s = states.get(task.get("id"))
-        if s == "locked" and (task.get("minPlayerLevel") or 0) <= level + 3:
+        # Unlocking soon: held back only by your level, a few levels away.
+        if (s == "locked" and level < (task.get("minPlayerLevel") or 0) <= level + 3
+                and not trader_blocks(task, progress)):
             reqs_done = all("complete" not in _list(r.get("status")) or states.get((r.get("task") or {}).get("id")) == "done"
                             for r in _objs(task.get("taskRequirements")))
             if reqs_done:
@@ -172,7 +258,9 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
             map_ids += objective_map_ids(o)
         if raid_objs and not map_ids and (task.get("map") or {}).get("id"):
             map_ids = [task["map"]["id"]]
-        map_ids = list(dict.fromkeys(map_ids))
+        map_ids = [i for i in dict.fromkeys(map_ids) if i not in skip] or ([] if not map_ids else ["*skipped*"])
+        if map_ids == ["*skipped*"]:
+            continue  # only on event/tutorial maps
         if not left:
             where = ["Ready to turn in"]
         elif not raid_objs:
@@ -181,7 +269,8 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
             where = ["Any map"]
         else:
             where = [map_names.get(i) or i for i in map_ids]
-        entry = {"task": task, "left": left, "pinned": task.get("id") in pinned}
+        entry = {"task": task, "left": left, "pinned": task.get("id") in pinned,
+                 "accepted": task.get("id") in accepted, "failed": task.get("id") in failed}
         for w in where:
             groups.setdefault(w, []).append(entry)
         # Keys: the quest's own list, and keys its unfinished objectives name.
@@ -211,6 +300,8 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
         "keys": sorted(keys.values(), key=lambda k: (not k["have"], k["maps"][:1], k["name"])),
         "soon": sorted(soon, key=lambda t: (t.get("minPlayerLevel") or 0, t.get("name") or "")),
         "available": sum(1 for s in states.values() if s == "available"),
+        "failed": [t for t in _objs(tasks) if t.get("id") in failed and states.get(t.get("id")) != "done"],
+        "acceptedCount": len([t for t in _objs(tasks) if t.get("id") in accepted and states.get(t.get("id")) != "done"]),
         "done": sum(1 for s in states.values() if s == "done"),
     }
 
@@ -278,7 +369,8 @@ def _map_name(name_id: Optional[str], maps: List[dict]) -> str:
 
 def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[List[dict]], maps: Optional[List[dict]],
           history: Optional[dict] = None, item_names: Optional[Dict[str, str]] = None, game_mode: str = "regular",
-          app_version: str = "", now: Optional[datetime] = None) -> str:
+          app_version: str = "", now: Optional[datetime] = None, traders: Optional[List[dict]] = None,
+          prices: Optional[Dict[str, dict]] = None) -> str:
     """The export as Markdown."""
     now = now or datetime.now()
     tasks, stations, maps = tasks or [], stations or [], maps or []
@@ -300,31 +392,69 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
         out.append(f"- Intelligence Center {progress['intel_center']}")
     if progress.get("hideout_management"):
         out.append(f"- Hideout Management skill {progress['hideout_management']}")
+    if q.get("acceptedCount"):
+        out.append(f"- Accepted in game (from the logs): {q['acceptedCount']} quests")
     if adv.get("goal"):
         out.append(f"- Goal: {adv['goal']}")
     if adv.get("notes"):
         out += ["- Notes: " + adv["notes"].replace("\n", " ")]
 
+    standing = progress.get("traders") or {}
+    if standing:
+        names = {t.get("id"): t.get("name") for t in _objs(traders)}
+        bits = []
+        for tid, e in sorted(standing.items(), key=lambda x: names.get(x[0]) or x[0]):
+            lvl = e.get("level")
+            text = f"{names.get(tid, tid)} " + ("locked" if lvl == 0 else f"LL{lvl}" if lvl is not None else "LL?")
+            if e.get("rep") is not None:
+                text += f" ({e['rep']:g})"
+            bits.append(text)
+        out.append(f"- Traders: {', '.join(bits)}")
+    else:
+        out.append("- Trader levels: not entered (quest availability ignores trader requirements)")
+    if "lightkeeper" in (adv.get("goal") or "").lower() or standing:
+        checklist = lightkeeper_checklist(tasks, traders, progress)
+        out += ["", "## Road to Lightkeeper", "", "_Requirements after the 1.1.5 Lighthouse rework, per community guides._", ""]
+        for row in checklist:
+            mark = "✅" if row["ok"] is True else "❌" if row["ok"] is False else "❔"
+            out.append(f"- {mark} {row['label']}" + (f" ({row['detail']})" if row["detail"] else ""))
+    if q.get("failed"):
+        out += ["", "## Failed quests (restart at the trader)", ""]
+        out += [f"- {t.get('name')} ({(t.get('trader') or {}).get('name')})" for t in q["failed"]]
     out += ["", "## Open quests by map", "",
-            "_Unfinished objectives only. A quest with objectives on several maps is listed under each. "
-            "📌 = in my raid plan._", ""]
+            "_Unfinished objectives only. Quests I've accepted in game come first, then pinned ones (📌). "
+            f"A quest on several maps is written out once and named again under the others; at most {PER_MAP} per map._", ""]
     if not tasks:
         out.append("_Quest data hadn't downloaded from tarkov.dev yet._")
+    shown: Dict[str, str] = {}  # quest id -> map it was written out under
     for where, entries in q["groups"].items():
         out.append(f"### {where} ({len(entries)})")
-        for e in sorted(entries, key=lambda e: (not e["pinned"], e["task"].get("name") or "")):
+        entries = sorted(entries, key=lambda e: (not e["failed"], not e["accepted"], not e["pinned"], e["task"].get("name") or ""))
+        for e in entries[:PER_MAP]:
             t = e["task"]
             tags = [(t.get("trader") or {}).get("name")]
             if t.get("kappaRequired"):
                 tags.append("Kappa")
             if t.get("lightkeeperRequired"):
                 tags.append("Lightkeeper")
+            if e["failed"]:
+                tags.append("FAILED in game, restart it")
+            elif e["accepted"]:
+                tags.append("accepted in game")
             pin = "📌 " if e["pinned"] else ""
+            if t.get("id") in shown:
+                out.append(f"- {pin}**{t.get('name')}** (see {shown[t['id']]})")
+                continue
+            shown[t["id"]] = where
             out.append(f"- {pin}**{t.get('name')}** ({', '.join(x for x in tags if x)})")
-            for o in e["left"][:8]:
+            limit = 12 if e["pinned"] or e["accepted"] else 6
+            for o in e["left"][:limit]:
                 out.append(f"  - {objective_text(o)}")
-            if len(e["left"]) > 8:
-                out.append(f"  - …and {len(e['left']) - 8} more")
+            if len(e["left"]) > limit:
+                out.append(f"  - …and {len(e['left']) - limit} more")
+        if len(entries) > PER_MAP:
+            rest = [e["task"].get("name") for e in entries[PER_MAP:]]
+            out.append(f"- Also here: {', '.join(rest)}")
         out.append("")
 
     out += _story_lines(progress)
@@ -333,7 +463,14 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
         for k in q["keys"]:
             mark = "✅ have" if k["have"] else "❌ don't have"
             maps_ = f" ({', '.join(k['maps'])})" if k["maps"] else ""
-            out.append(f"- {mark}: **{k['name']}**{maps_}, for {_join(k['quests'][:4], 'and')}")
+            price = (prices or {}).get(k["id"]) or {}
+            cost = ""
+            if not k["have"]:
+                if price.get("banned"):
+                    cost = " — not on the flea"
+                elif price.get("flea"):
+                    cost = f" — flea about {_rub(price['flea'])}"
+            out.append(f"- {mark}: **{k['name']}**{maps_}, for {_join(k['quests'][:4], 'and')}{cost}")
     else:
         out.append("- None of my available quests need keys.")
     other_keys = [names.get(i, i) for i, n in (progress.get("owned") or {}).items()
@@ -381,7 +518,8 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
         for s in sales[:10]:
             name = names.get(s.get("itemId"), s.get("itemId") or "?")
             out.append(f"- {s['time'][5:16]}: {name}" + (f" ×{s['count']}" if (s.get("count") or 1) > 1 else "")
-                       + (f" for {_rub(s['roubles'])}" if s.get("roubles") else ""))
+                       + (f" for {_rub(s['roubles'])}" if s.get("roubles") else "")
+                       + (f" ⚠️ still needed: {'; '.join(s['needed'])}" if s.get("needed") else ""))
 
     if maps:
         out += ["", "## Maps (tarkov.dev)", ""]
