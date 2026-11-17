@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import asdict
 from typing import List, Optional
 
-from . import APP_NAME, __version__, questmap, staticapi
+from . import APP_NAME, __version__, advisor, gamelogs, questmap, staticapi
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
@@ -332,6 +332,64 @@ class WebApp:
 
     def recent_scans(self) -> list:
         return list(self.scans)
+
+    # -- "Ask Claude" export (see advisor.py) ----------------------------
+
+    def _item_names(self) -> dict:
+        names = {i.id: i.name for i in self.app.prices.items}
+        for task in self.store.snapshot("tasks")["data"] or []:
+            for o in task.get("objectives") or []:
+                for ref in (o.get("items") or []) + [o.get("questItem"), o.get("markerItem"), o.get("item")]:
+                    if isinstance(ref, dict) and ref.get("id") and ref.get("name"):
+                        names.setdefault(ref["id"], ref["name"])
+        return names
+
+    def advisor_state(self) -> dict:
+        """Keys your open quests need (to tick off), and your kit settings."""
+        tasks = self.store.get("tasks", 30)["data"]
+        maps = self.store.get("maps", 20)["data"]
+        prog = self.progress.snapshot()
+        found = advisor.open_quests(tasks or [], prog, maps or [])
+        return {
+            "settings": prog.get("advisor") or {},
+            "keys": found["keys"],
+            "available": found["available"],
+            "maps": [{"name": name, "count": len(entries)} for name, entries in found["groups"].items()],
+            "tasksLoaded": tasks is not None,
+            "folder": str(advisor.export_folder()),
+            "logs": str(self._logs_folder() or "") or None,
+        }
+
+    def _logs_folder(self):
+        return self.link.folder or gamelogs.default_folder(self.app.config.logs.path)
+
+    def advisor_text(self) -> str:
+        return advisor.build(
+            progress=self.progress.snapshot(),
+            tasks=self.store.get("tasks", 30)["data"],
+            stations=self.store.get("hideout", 20)["data"],
+            maps=self.store.get("maps", 20)["data"],
+            history=advisor.history_for(self._logs_folder()),
+            item_names=self._item_names(),
+            game_mode=self.app.config.game_mode,
+            app_version=__version__,
+        )
+
+    def advisor_export(self) -> dict:
+        text = self.advisor_text()
+        path = advisor.save(text)
+        log.info("Saved the Ask Claude export to %s", path)
+        return {"path": str(path), "name": path.name, "folder": str(path.parent), "text": text,
+                "bytes": len(text.encode("utf-8"))}
+
+    def advisor_open_folder(self) -> dict:
+        folder = advisor.export_folder()
+        folder.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            import os
+
+            os.startfile(str(folder))  # noqa: S606 - our own folder, opened in Explorer
+        return {"folder": str(folder)}
 
     # -- display --------------------------------------------------------
 
