@@ -104,6 +104,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Ammo** | Damage vs penetration chart per caliber, full stats, a rough armor-class guide, prices |
 | **Ask Claude** | Saves your progress (open quests by map, keys, hideout, recent raids, flea sales, your kit and goal) to one file you drop into a Claude chat for a "what next" plan. See [Ask Claude](#ask-claude) |
 | **Quests** | All quests with objectives, rewards and prerequisites, and how and where to do each objective. Filter by available / locked / done / pinned, trader, map, Kappa or Lightkeeper. Pin quests for your next raid. Marking a quest done also marks every quest before it (with Undo) |
+| **Story** | The 1.0 story chapters (Tour, Falling Skies, The Ticket and the seven investigations) step by step, with maps and what each step needs. Tick steps off and note your choices; it all goes into the Ask Claude export |
 | **Raid plan** | The quests you pinned, for the map you're going to: keys and items to take, what to look for, each objective's how and where with a tick box or counter, and other quests you could do on that map |
 | **Hideout** | Set each station's level; see what the next upgrade (or all of them) needs and the cost to finish |
 | **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
@@ -202,7 +203,7 @@ memory, process or any other file.
 The **Ask Claude** page saves one Markdown file with everything the app knows about where
 you are: your level, open quests grouped by map (unfinished objectives only), the keys
 those quests use and which ones you have, items you've set aside, each hideout station's
-next level, quests unlocking soon, your recent raids from the game logs (map, queue time,
+next level, where you are in each story chapter, quests unlocking soon, your recent raids from the game logs (map, queue time,
 length, ping, server), recent flea sales, and each map's bosses. Add what you usually take
 into raid, your roubles and your goal on the same page.
 

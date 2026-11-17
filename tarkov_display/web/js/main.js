@@ -9,7 +9,7 @@ import { dataset, emit, invalidate, loadBoot, loadItems, on, peek, searchItems, 
 const NAV = [
   ["Overview", [["home", "Home", "home"], ["advisor", "Ask Claude", "spark"]]],
   ["Market", [["items", "Prices", "items"], ["pricewatch", "Price watch", "trend"], ["barters", "Barters", "barters"], ["crafts", "Crafts", "crafts"], ["ammo", "Ammo", "ammo"]]],
-  ["Progress", [["quests", "Quests", "quests"], ["raid", "Raid plan", "raid"], ["hideout", "Hideout", "hideout"], ["needed", "Needed items", "needed"], ["achievements", "Achievements", "achievements"]]],
+  ["Progress", [["quests", "Quests", "quests"], ["story", "Story", "book"], ["raid", "Raid plan", "raid"], ["hideout", "Hideout", "hideout"], ["needed", "Needed items", "needed"], ["achievements", "Achievements", "achievements"]]],
   ["World", [["maps", "Maps", "maps"], ["bosses", "Bosses", "bosses"], ["traders", "Traders", "traders"]]],
   ["App", [["display", "Display", "display"], ["settings", "Settings", "settings"]]],
 ];
