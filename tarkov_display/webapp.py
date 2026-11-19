@@ -458,8 +458,15 @@ class WebApp:
         from . import mcp
 
         result = mcp.install_claude_desktop()
-        log.info("Added RaidReady to Claude Desktop's config at %s", result["path"])
+        log.info("Added RaidReady to Claude Desktop's config at %s", ", ".join(result["paths"]))
         return dict(mcp.claude_desktop_status(), installedNow=True)
+
+    def claude_desktop_test(self) -> dict:
+        from . import mcp
+
+        result = mcp.self_test()
+        log.info("Claude Desktop tool self-test: %s", result)
+        return result
 
     def lightkeeper_state(self) -> dict:
         return {"checklist": advisor.lightkeeper_checklist(self.store.get("tasks", 20)["data"],

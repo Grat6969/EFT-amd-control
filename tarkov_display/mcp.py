@@ -253,25 +253,40 @@ def claude_config_path() -> Path:
     return Path(base) / "Claude" / "claude_desktop_config.json"
 
 
+def claude_config_paths() -> List[Path]:
+    """Where Claude Desktop may keep its settings. The normal installer uses
+    %APPDATA%\\Claude; the Microsoft Store version keeps a private copy under
+    %LOCALAPPDATA%\\Packages\\Claude_*\\LocalCache\\Roaming\\Claude and never reads
+    the normal one. Folders that exist come first."""
+    paths = [claude_config_path()]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        try:
+            for pkg in sorted(Path(local, "Packages").glob("Claude_*")):
+                paths.append(pkg / "LocalCache" / "Roaming" / "Claude" / "claude_desktop_config.json")
+        except OSError:
+            pass
+    existing = [p for p in paths if p.parent.is_dir()]
+    return existing or paths[:1]
+
+
 def server_command() -> dict:
     """How Claude Desktop should start this server: this Python (console
-    version, so stdin/stdout work), from the app's folder."""
+    version, so stdin/stdout work), with the app's folder on PYTHONPATH.
+    Only the keys Claude Desktop documents (command, args, env)."""
     exe = Path(sys.executable)
     if exe.name.lower() == "pythonw.exe" and (exe.parent / "python.exe").exists():
         exe = exe.parent / "python.exe"
     app_dir = Path(__file__).resolve().parent.parent
-    return {"command": str(exe), "args": ["-m", "tarkov_display", "mcp"], "cwd": str(app_dir),
-            "env": {"PYTHONPATH": str(app_dir)}}
+    return {"command": str(exe), "args": ["-m", "tarkov_display", "mcp"],
+            "env": {"PYTHONPATH": str(app_dir), "PYTHONIOENCODING": "utf-8"}}
 
 
-def install_claude_desktop(path: Optional[Path] = None) -> dict:
-    """Add (or update) RaidReady in Claude Desktop's config. The old file is
-    kept next to it as .bak. Claude Desktop must be restarted to pick it up."""
-    path = path or claude_config_path()
+def _install_one(path: Path) -> dict:
     config: dict = {}
     if path.exists():
         try:
-            config = json.loads(path.read_text(encoding="utf-8") or "{}")
+            config = json.loads(path.read_text(encoding="utf-8-sig") or "{}")
         except ValueError:
             raise ValueError(f"Claude Desktop's config file isn't valid JSON, so I left it alone: {path}") from None
         if not isinstance(config, dict):
@@ -285,14 +300,75 @@ def install_claude_desktop(path: Optional[Path] = None) -> dict:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(config, indent=2), encoding="utf-8")
     os.replace(tmp, path)
-    return {"path": str(path), "server": servers[SERVER_NAME], "time": time.time()}
+    return {"path": str(path), "server": servers[SERVER_NAME]}
+
+
+def install_claude_desktop(path: Optional[Path] = None) -> dict:
+    """Add (or update) RaidReady in Claude Desktop's config: every copy it
+    may read (see claude_config_paths). Old files are kept as .bak. Claude
+    Desktop must be quit fully (tray icon > Quit) and opened again."""
+    paths = [path] if path else claude_config_paths()
+    done = [_install_one(p) for p in paths]
+    return {"path": done[0]["path"], "paths": [d["path"] for d in done], "server": done[0]["server"], "time": time.time()}
+
+
+def _log_tail(folder: Path, lines: int = 25) -> List[str]:
+    """The end of Claude Desktop's log about this server, if it has one."""
+    out: List[str] = []
+    for name in (f"mcp-server-{SERVER_NAME}.log", "mcp.log"):
+        try:
+            text = (folder / "logs" / name).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        if name == "mcp.log":
+            text = [l for l in text if SERVER_NAME in l]
+        out += [f"[{name}] {l}" for l in text[-lines:]]
+    return out[-lines:]
 
 
 def claude_desktop_status(path: Optional[Path] = None) -> dict:
-    path = path or claude_config_path()
-    installed = False
+    paths = [path] if path else claude_config_paths()
+    configs = []
+    for p in paths:
+        installed = False
+        try:
+            installed = SERVER_NAME in (json.loads(p.read_text(encoding="utf-8-sig")).get("mcpServers") or {})
+        except (OSError, ValueError, AttributeError):
+            pass
+        configs.append({"path": str(p), "installed": installed, "store": "Packages" in p.parts,
+                        "folderExists": p.parent.is_dir()})
+    first = configs[0]
+    return {"path": first["path"], "installed": all(c["installed"] for c in configs), "claudeFound": any(c["folderExists"] for c in configs),
+            "configs": configs, "log": _log_tail(Path(first["path"]).parent), "command": server_command()}
+
+
+def self_test(timeout: float = 25) -> dict:
+    """Start the server the way Claude Desktop would and ask it for its tools."""
+    import subprocess
+
+    cmd = server_command()
+    env = dict(os.environ, **cmd["env"])
+    messages = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": PROTOCOL}},
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        installed = SERVER_NAME in (json.loads(path.read_text(encoding="utf-8")).get("mcpServers") or {})
-    except (OSError, ValueError, AttributeError):
-        pass
-    return {"path": str(path), "installed": installed, "claudeFound": path.parent.is_dir()}
+        proc = subprocess.run([cmd["command"], *cmd["args"]], input="\n".join(json.dumps(m) for m in messages) + "\n",
+                              capture_output=True, text=True, encoding="utf-8", env=env, timeout=timeout,
+                              cwd=cmd["env"]["PYTHONPATH"], creationflags=flags)
+    except FileNotFoundError:
+        return {"ok": False, "error": f"Python wasn't found at {cmd['command']}"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "The server didn't answer within 25 seconds"}
+    tools = 0
+    for line in proc.stdout.splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            return {"ok": False, "error": f"Unexpected output (it must be JSON only): {line[:200]}"}
+        if msg.get("id") == 2:
+            tools = len((msg.get("result") or {}).get("tools") or [])
+    if tools:
+        return {"ok": True, "tools": tools}
+    err = (proc.stderr or "").strip().splitlines()[-8:]
+    return {"ok": False, "error": "\n".join(err) or f"No answer (exit code {proc.returncode})"}
