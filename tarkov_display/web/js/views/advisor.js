@@ -146,24 +146,40 @@ export default {
 
     // -- or: Claude Desktop reads it directly ---------------------------------------
     const desktopBox = h("div");
+    let testResult = null;
     const drawDesktop = async () => {
       let st;
       try { st = await api("claude"); } catch (e) { mount(desktopBox, h("div.muted", e.message)); return; }
+      const add = async () => {
+        if (!confirm("Add RaidReady to Claude Desktop's settings? The old settings file is kept as a .bak copy.")) return;
+        try { await api("claude/install", { method: "POST", body: {} }); toast("Added. Now quit Claude Desktop from its tray icon and open it again.", { kind: "good", timeout: 12000 }); drawDesktop(); }
+        catch (e) { toast(e.message, { kind: "bad", timeout: 12000 }); }
+      };
+      const test = async () => {
+        testResult = { running: true }; drawDesktop();
+        try { testResult = await api("claude/test", { method: "POST", body: {} }); }
+        catch (e) { testResult = { ok: false, error: e.message }; }
+        drawDesktop();
+      };
       mount(desktopBox,
         h("p.muted.small", { style: { margin: "0 0 10px" } },
           "Using the Claude Desktop app? RaidReady can plug into it, so you can just ask Claude \u201cwhat should I run next?\u201d ",
-          "and it reads your quests, keys, story, raids and prices itself: no file to export. It only reads what RaidReady has saved on this PC, and works with the RaidReady window closed."),
-        st.installed
-          ? h("div.note", icon("check", 16), h("div", h("strong", "RaidReady is added to Claude Desktop. "),
-            "Restart Claude Desktop if you just added it, then ask it about your raids. Its tools start with \u201craidready_\u201d."))
-          : h("div.toolbar",
-            button("Add RaidReady to Claude Desktop", async () => {
-              if (!confirm("Add RaidReady to Claude Desktop's settings? The old settings file is kept as a .bak copy.")) return;
-              try { await api("claude/install", { method: "POST", body: {} }); toast("Added. Restart Claude Desktop to use it.", { kind: "good", timeout: 10000 }); drawDesktop(); }
-              catch (e) { toast(e.message, { kind: "bad", timeout: 10000 }); }
-            }, { kind: "primary", iconName: "plus" }),
-            st.claudeFound ? null : h("span.muted.small", "Claude Desktop doesn't seem to be installed yet; this still works once it is.")),
-        h("div.muted.small", { style: { marginTop: "8px" } }, `Settings file: ${st.path}`));
+          "and it reads your quests, keys, story, raids and prices itself: no file to export. It only reads what RaidReady has saved on this PC."),
+        h("div.list", st.configs.map((c) => h("div.list-row",
+          h("span.lk-mark." + (c.installed ? "ok" : "no"), icon(c.installed ? "check" : "x", 14)),
+          h("div.grow", h("div", c.installed ? "RaidReady is in this settings file" : "Not added here yet",
+            c.store ? h("span.muted.small", " (Microsoft Store version of Claude)") : null), h("div.muted.small", c.path))))),
+        h("div.toolbar", { style: { marginTop: "10px" } },
+          button(st.installed ? "Add again / repair" : "Add RaidReady to Claude Desktop", add, { kind: st.installed ? "ghost" : "primary", iconName: "plus" }),
+          button(testResult?.running ? "Testing…" : "Test it", test, { iconName: "check", disabled: !!testResult?.running })),
+        testResult && !testResult.running ? h("div.note" + (testResult.ok ? "" : ".warn"), { style: { marginTop: "8px" } },
+          icon(testResult.ok ? "check" : "alert", 16),
+          h("div", testResult.ok ? `Works: the tool starts and offers ${testResult.tools} tools. If Claude Desktop still doesn't show it, quit Claude Desktop from its tray icon (right-click > Quit), not just the window, and open it again.`
+            : h("div", h("strong", "The tool didn't start: "), h("pre.small", { style: { whiteSpace: "pre-wrap", margin: "4px 0 0" } }, testResult.error)))) : null,
+        st.installed ? h("div.muted.small", { style: { marginTop: "8px" } },
+          "After adding it: quit Claude Desktop from the tray icon (closing the window isn't enough), open it again, then look for \u201craidready\u201d under the tools/connectors button in the chat box.") : null,
+        st.log?.length ? h("details.adv-preview", { style: { marginTop: "8px" } }, h("summary", "Claude Desktop's log for RaidReady"),
+          h("pre", st.log.join("\n"))) : null);
     };
 
     mount(root, summary,

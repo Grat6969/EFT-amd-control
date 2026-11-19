@@ -73,3 +73,28 @@ def test_snapshot_reads_saved_state(webapp):
     text = snap.export()
     assert "Level 21" in text and "## Open quests by map" in text
     assert "LEDX" in mcp.tool_price(snap, {"item": "ledx"})
+
+
+def test_store_version_of_claude_gets_its_own_copy(tmp_path, monkeypatch):
+    roaming, local = tmp_path / "Roaming", tmp_path / "Local"
+    store = local / "Packages" / "Claude_pzs8sxrjxfjjc" / "LocalCache" / "Roaming" / "Claude"
+    store.mkdir(parents=True)
+    monkeypatch.setenv("APPDATA", str(roaming))
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    # Only the Store copy's folder exists: that's the one written.
+    assert mcp.claude_config_paths() == [store / "claude_desktop_config.json"]
+    (roaming / "Claude").mkdir(parents=True)
+    result = mcp.install_claude_desktop()
+    assert len(result["paths"]) == 2
+    st = mcp.claude_desktop_status()
+    assert st["installed"] and [c["store"] for c in st["configs"]] == [False, True]
+    assert "cwd" not in json.loads((store / "claude_desktop_config.json").read_text())["mcpServers"]["raidready"]
+    (roaming / "Claude" / "logs").mkdir()
+    (roaming / "Claude" / "logs" / "mcp-server-raidready.log").write_text("line 1\nServer disconnected\n")
+    assert mcp.claude_desktop_status()["log"][-1] == "[mcp-server-raidready.log] Server disconnected"
+
+
+def test_self_test_starts_the_real_server(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    result = mcp.self_test()
+    assert result == {"ok": True, "tools": len(mcp.TOOLS)}

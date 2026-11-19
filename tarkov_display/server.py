@@ -264,6 +264,10 @@ class Server:
         def claude_install(req, m, q, body):
             return ctx.claude_desktop_install()
 
+        @r("POST", "/api/claude/test")
+        def claude_test(req, m, q, body):
+            return ctx.claude_desktop_test()
+
         @r("GET", "/api/profile")
         def profile_state(req, m, q, body):
             return ctx.profile_state()
