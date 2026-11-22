@@ -367,7 +367,7 @@ class WebApp:
         tasks = self.store.snapshot("tasks")["data"]
         if not tasks or not self.app.config.logs.pack_check:
             return None
-        kit = advisor.raid_kit(tasks, self.progress.snapshot(), map_id)
+        kit = advisor.raid_kit(tasks, self.progress.snapshot(), map_id, self.store.snapshot("traders")["data"])
         lines = advisor.kit_lines(kit)
         if self.popup and (kit["bring"] or kit["quests"]):
             from .popup import ACCENT, MUTED
@@ -489,7 +489,7 @@ class WebApp:
         tasks = self.store.get("tasks", 30)["data"]
         maps = self.store.get("maps", 20)["data"]
         prog = self.progress.snapshot()
-        found = advisor.open_quests(tasks or [], prog, maps or [])
+        found = advisor.open_quests(tasks or [], prog, maps or [], self.store.snapshot("traders")["data"])
         return {
             "settings": prog.get("advisor") or {},
             "keys": found["keys"],

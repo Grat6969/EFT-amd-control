@@ -27,14 +27,16 @@ END_GAP = 180        # a raid's end shows up twice (connection closed, then User
 
 
 def prerequisite_ids(task_id: str, tasks: Optional[List[dict]]) -> List[str]:
-    """Quests that must be finished before ``task_id`` (all the way back)."""
+    """Quests that must be finished before ``task_id`` (all the way back).
+    Not ones that could have been failed instead."""
     by_id = {t["id"]: t for t in tasks or []}
     out, stack, seen = [], [task_id], {task_id}
     while stack:
         task = by_id.get(stack.pop())
         for req in (task or {}).get("taskRequirements") or []:
             rid = (req.get("task") or {}).get("id")
-            if rid and rid not in seen and "complete" in (req.get("status") or []):
+            status = req.get("status") or []
+            if rid and rid not in seen and "complete" in status and "failed" not in status:
                 seen.add(rid)
                 out.append(rid)
                 stack.append(rid)
@@ -90,18 +92,34 @@ class GameLink:
             for x in [qid, *prerequisite_ids(qid, tasks)]:
                 if x not in wanted:
                     wanted.append(x)
+        return self._mark_done(mode, wanted)
+
+    def set_quest_status(self, mode: str, ids: List[str], status: str) -> List[str]:
+        """Accepted or failed in game, per the logs (finished quests are left
+        alone). A quest you took means the ones it needed finished are done:
+        those are marked done (returned), so they stop showing as available
+        even when you finished them before the logs on disk begin."""
+        if status in ("accepted", "failed"):
+            tasks = self.data_for(mode, "tasks", fetch=True)
+            before = [p for qid in ids for p in prerequisite_ids(qid, tasks)]
+            implied = self._mark_done(mode, list(dict.fromkeys(before))) if before else []
+        else:
+            implied = []
+        self._set_status(mode, ids, status)
+        return implied
+
+    def _mark_done(self, mode: str, ids: List[str]) -> List[str]:
         with self.lock:
             progress = self.progress_for(mode)
             done = set(progress.snapshot()["tasks"])
-            new = [x for x in wanted if x not in done]
+            new = [x for x in ids if x not in done]
             if new:
                 snap = progress.apply({"op": "tasks", "ids": new, "done": True})
                 if mode == self.cfg.game_mode:
                     self.web.publish("progress", snap)
         return new
 
-    def set_quest_status(self, mode: str, ids: List[str], status: str) -> None:
-        """Accepted or failed in game, per the logs (finished quests are left alone)."""
+    def _set_status(self, mode: str, ids: List[str], status: str) -> None:
         with self.lock:
             progress = self.progress_for(mode)
             snap = progress.snapshot()
@@ -229,7 +247,11 @@ class GameLink:
             name, trader = self._quest_name(ev.data["questId"], mode)
             payload.update(name=name, trader=trader)
             if ev.data["status"] in ("started", "failed") and mode in GAME_MODES:
-                self.set_quest_status(mode, [ev.data["questId"]], "accepted" if ev.data["status"] == "started" else "failed")
+                implied = self.set_quest_status(mode, [ev.data["questId"]], "accepted" if ev.data["status"] == "started" else "failed")
+                if history:
+                    self.history_quests += len(implied)
+                elif implied:
+                    self.push_completed(mode, implied)
             if ev.data["status"] == "finished" and mode in GAME_MODES:
                 new = self.finish_quests(mode, [ev.data["questId"]])
                 payload["added"] = len(new)
@@ -324,7 +346,9 @@ class GameLink:
                 continue
             done = set(self.progress_for(mode).snapshot()["tasks"])
             tasks = self.data_for(mode, "tasks", fetch=True)
-            implied = {p for q in found["finished"] for p in prerequisite_ids(q, tasks)}
+            # Quests you took or failed say the ones before them are finished too.
+            taken = [q for q, st in found.get("latest", {}).items() if st in ("started", "failed")]
+            implied = {p for q in list(found["finished"]) + taken for p in prerequisite_ids(q, tasks)}
             summary["modes"][mode] = {
                 "finished": len(found["finished"]),
                 "new": len([q for q in set(found["finished"]) | implied if q not in done]),

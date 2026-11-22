@@ -226,12 +226,30 @@ class ProfileStore:
                 break
             errors.append(f"{url.split('/')[2]}: no profile in the answer")
         if raw is None:
-            raise ValueError("tarkov.dev didn't return your profile. " + "; ".join(errors)
-                             + " If it keeps failing, open tarkov.dev/players and search your name once.")
+            raise ValueError(not_found_message(aid, mode, errors))
         result = {"accountId": aid, "mode": mode, "fetched": time.time(),
                   "profile": summarize(raw, self.levels(client), item_names)}
         self._save(mode, result)
         return result
+
+
+def not_found_message(aid: str, mode: str, errors: List[str]) -> str:
+    """Why there's no profile, in words (the servers' answers can be whole
+    HTML error pages). tarkov.dev's profile service now wants a browser
+    check (Cloudflare Turnstile) that an app can't pass, so the only way in
+    is the copy tarkov.dev keeps of profiles looked up on its site."""
+    checked = any("HTTP 401" in e or "HTTP 403" in e for e in errors if e.startswith("player.tarkov.dev"))
+    missing = any("HTTP 404" in e for e in errors if e.startswith("players.tarkov.dev"))
+    page = f"tarkov.dev/players/{mode}/{aid}"
+    if checked and missing:
+        return ("tarkov.dev has no copy of your profile for RaidReady to read: its profile service now asks for a "
+                "browser check that apps can't do. Open " + page + " in your browser and let it load; that may "
+                "make tarkov.dev keep a copy RaidReady can read, so try again after. Your level and faction can "
+                "also be set by hand on the Quests page.")
+    short = [re.sub(r"<[^>]+>", " ", e) for e in errors]
+    short = [re.sub(r"\s+", " ", e).strip()[:120] for e in short]
+    return ("tarkov.dev didn't return your profile (" + "; ".join(short) + "). If it keeps failing, open "
+            + page + " in your browser once and try again.")
 
 
 def export_lines(cached: Optional[dict]) -> List[str]:

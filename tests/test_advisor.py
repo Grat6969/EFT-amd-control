@@ -321,3 +321,45 @@ def test_scav_raids_start_the_cooldown(webapp, monkeypatch):
     # A PMC raid doesn't touch it.
     webapp.link._on_event(gamelogs.Event("raid", "2026-11-17 14:00:00", {"map": "bigmap", "profileId": pmc}), False)
     assert webapp.state()["scav"] == scav_state
+
+
+def _q(qid, **kw):
+    return dict({"id": qid, "name": qid.title(), "trader": {"id": "t-pr", "name": "Prapor"}, "objectives": [],
+                 "taskRequirements": [], "traderRequirements": []}, **kw)
+
+
+def test_quests_you_cant_take_arent_available():
+    base = {"player_level": 10, "faction": "USEC", "tasks": ["a"], "accepted": [], "failed": []}
+    # Two sides of a choice: finishing one fails the other.
+    left = _q("left", taskRequirements=[{"task": {"id": "a"}, "status": ["complete"]}],
+              failConditions=[{"type": "taskStatus", "task": {"id": "right", "name": "Right"}, "status": ["complete"]}])
+    right = _q("right", taskRequirements=[{"task": {"id": "a"}, "status": ["complete"]}],
+               failConditions=[{"type": "taskStatus", "task": {"id": "left", "name": "Left"}, "status": ["complete"]}])
+    # Opens when you fail another; one taken is enough for another.
+    on_fail = _q("on-fail", taskRequirements=[{"task": {"id": "a2"}, "status": ["failed"]}])
+    a2 = _q("a2")
+    once_taken = _q("once-taken", taskRequirements=[{"task": {"id": "a2"}, "status": ["active"]}])
+    tasks = [_q("a"), left, right, on_fail, a2, once_taken, _q("gone", restartable=False), _q("retry", restartable=True)]
+    states = advisor.quest_states(tasks, base)
+    assert states["left"] == states["right"] == "available"  # choice not made yet
+    assert states["on-fail"] == "locked" and states["once-taken"] == "available"
+
+    chose = dict(base, tasks=["a", "right"], failed=["a2", "gone", "retry"])
+    states = advisor.quest_states(tasks, chose)
+    assert states["left"] == "locked" and advisor.quest_blocks(left, chose) == ["Gone: you finished Right"]
+    assert states["on-fail"] == "available"
+    assert states["gone"] == "locked" and advisor.quest_blocks(tasks[6], chose) == ["Failed in game"]
+    assert states["retry"] == "available"  # it can be restarted
+
+
+def test_trader_loyalty_needs_a_player_level_even_with_nothing_entered():
+    pr = {"id": "t-pr", "name": "Prapor"}
+    traders = [{"id": "t-pr", "name": "Prapor", "levels": [{"level": 1, "requiredPlayerLevel": 1},
+                                                           {"level": 2, "requiredPlayerLevel": 15}]}]
+    task = _q("ll2", traderRequirements=[{"trader": pr, "requirementType": "level", "compareMethod": ">=", "value": 2}])
+    low = {"player_level": 10, "faction": "USEC", "tasks": []}
+    assert advisor.quest_states([task], low, traders) == {"ll2": "locked"}
+    assert advisor.trader_blocks(task, low, traders) == ["Prapor LL2 (level 15+)"]
+    assert advisor.quest_states([task], low) == {"ll2": "available"}  # no trader data: can't tell
+    assert advisor.quest_states([task], dict(low, player_level=15), traders) == {"ll2": "available"}
+    assert advisor.needs_finished({"status": ["complete"]}) and not advisor.needs_finished({"status": ["complete", "failed"]})

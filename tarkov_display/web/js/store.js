@@ -204,11 +204,12 @@ export function searchItems(query, limit = 50) {
 
 // -- quests -------------------------------------------------------------------------
 
-export function questContext(tasks) {
+export function questContext(tasks, traderList = peek("traders")) {
   const p = store.progress || { tasks: [], player_level: 1, faction: "USEC" };
   return { byId: new Map(tasks.map((t) => [t.id, t])), done: new Set(p.tasks), level: p.player_level,
     faction: p.faction, memo: new Map(), traders: p.traders || {},
-    accepted: new Set(p.accepted || []), failed: new Set(p.failed || []) };
+    accepted: new Set(p.accepted || []), failed: new Set(p.failed || []),
+    traderInfo: new Map((traderList || []).map((t) => [t.id, t])) };
 }
 
 // Traders you unlock through quests: assumed locked until you set a level
@@ -226,23 +227,71 @@ export function traderLevel(trader, traders = store.progress?.traders || {}) {
   return LOCKED_TRADERS.has(traderKey(trader)) ? 0 : 1;
 }
 
-// Why your trader standing keeps a quest locked ([] = it doesn't). Nothing
-// blocks until you've entered your trader levels (Traders page).
-export function traderBlocks(task, traders = store.progress?.traders || {}) {
-  if (!traders || !Object.keys(traders).length) return [];
+// The player level a trader's loyalty level needs (0 = unknown). Mirrors advisor.py.
+export function llPlayerLevel(traderId, ll, traderInfo) {
+  const lvl = (traderInfo?.get(traderId)?.levels || []).find((l) => l.level === ll);
+  return typeof lvl?.requiredPlayerLevel === "number" ? lvl.requiredPlayerLevel : 0;
+}
+
+// Why your trader standing keeps a quest locked ([] = it doesn't). With your
+// trader levels entered (Traders page), those count. Without them, only what
+// is sure from your player level: a loyalty level needs a player level
+// (Prapor LL2 needs level 15, say), so a quest that asks for it is out of
+// reach below that.
+export function traderBlocks(task, traders = store.progress?.traders || {}, level = 0, traderInfo = null) {
+  const entered = traders && Object.keys(traders).length;
   const out = [];
-  if (task.trader && traderLevel(task.trader, traders) < 1) out.push(`${task.trader.name} not unlocked`);
+  if (entered && task.trader && traderLevel(task.trader, traders) < 1) out.push(`${task.trader.name} not unlocked`);
   for (const r of task.traderRequirements || []) {
     if (!r?.trader || typeof r.value !== "number") continue;
     const test = CMP[r.compareMethod || ">="] || CMP[">="];
     const kind = r.requirementType || "level";
-    if (kind === "level" && !test(traderLevel(r.trader, traders), r.value)) out.push(`${r.trader.name} LL${r.value}`);
-    if (kind === "reputation") {
+    if (kind === "level") {
+      if (entered) {
+        if (!test(traderLevel(r.trader, traders), r.value)) out.push(`${r.trader.name} LL${r.value}`);
+      } else if ((r.compareMethod || ">=") === ">=") {
+        const need = llPlayerLevel(r.trader.id, r.value, traderInfo);
+        if (need > (level || 0)) out.push(`${r.trader.name} LL${r.value} (level ${need}+)`);
+      }
+    }
+    if (kind === "reputation" && entered) {
       const rep = traders[r.trader.id]?.rep;
       if (rep !== undefined && rep !== null && !test(rep, r.value)) out.push(`${r.trader.name} rep ${r.value}`);
     }
   }
   return out;
+}
+
+// What, besides your level and earlier quests, keeps a quest from being
+// taken ([] = nothing): failed in game (and it can't be restarted), the
+// other side of a choice you already made (finishing one quest fails
+// another: its fail conditions), or trader standing.
+export function questBlocks(task, ctx) {
+  const out = [];
+  if (ctx.failed.has(task.id) && !task.restartable) out.push("Failed in game");
+  for (const f of task.failConditions || []) {
+    if (f?.type !== "taskStatus" || !f.task?.id || f.task.id === task.id) continue;
+    const st = f.status || [];
+    if (st.includes("complete") && ctx.done.has(f.task.id)) out.push(`Gone: you finished ${f.task.name || "another quest"}`);
+    else if (st.includes("failed") && ctx.failed.has(f.task.id)) out.push(`Gone: you failed ${f.task.name || "another quest"}`);
+  }
+  return out.concat(traderBlocks(task, ctx.traders, ctx.level, ctx.traderInfo));
+}
+
+// Is an earlier quest in the state a requirement asks for? tarkov.dev lists
+// the states that count: "complete", "failed" (some quests open when you
+// fail another) and "active" (taken).
+function requirementMet(r, req, ctx) {
+  const st = r.status || [];
+  return (st.includes("complete") && ctx.done.has(req.id)) || (st.includes("failed") && ctx.failed.has(req.id))
+    || (st.includes("active") && (ctx.accepted.has(req.id) || ctx.done.has(req.id)));
+}
+
+// A requirement on an earlier quest being finished: the quests marked done
+// along with a later one. Not when failing it would do too.
+export function needsFinished(r) {
+  const st = r?.status || [];
+  return st.includes("complete") && !st.includes("failed");
 }
 
 export function forFaction(task, faction) {
@@ -255,16 +304,16 @@ export function questState(task, ctx, depth = 0) {
   let state = "available";
   if (ctx.done.has(task.id)) state = "done";
   else if (!forFaction(task, ctx.faction)) state = "other";
-  else if ((task.minPlayerLevel || 0) > ctx.level || traderBlocks(task, ctx.traders).length) state = "locked";
+  else if ((task.minPlayerLevel || 0) > ctx.level || questBlocks(task, ctx).length) state = "locked";
   else {
     for (const r of task.taskRequirements || []) {
       const req = ctx.byId.get(r.task?.id);
-      if (!req) continue;
-      if ((r.status || []).includes("complete")) {
-        if (!ctx.done.has(req.id)) { state = "locked"; break; }
-      } else if (depth < 50 && questState(req, ctx, depth + 1) === "locked") {
-        state = "locked"; break;
-      }
+      if (!req || requirementMet(r, req, ctx)) continue;
+      const st = r.status || [];
+      // Has to be finished (or failed): it isn't yet, so this one's locked.
+      if (st.includes("complete") || st.includes("failed")) { state = "locked"; break; }
+      // Only has to be taken: locked while that one can't be taken either.
+      if (depth < 50 && questState(req, ctx, depth + 1) === "locked") { state = "locked"; break; }
     }
   }
   ctx.memo.set(task.id, state);
@@ -277,7 +326,7 @@ export function prerequisites(task, ctx) {
   const walk = (t, depth) => {
     for (const r of t.taskRequirements || []) {
       const req = ctx.byId.get(r.task?.id);
-      if (!req || !(r.status || []).includes("complete") || out.has(req.id) || depth > 60) continue;
+      if (!req || !needsFinished(r) || out.has(req.id) || depth > 60) continue;
       if (!ctx.done.has(req.id)) out.add(req.id);
       walk(req, depth + 1);
     }

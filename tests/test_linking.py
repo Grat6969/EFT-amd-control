@@ -139,6 +139,9 @@ def test_prerequisite_ids():
     ]
     assert prerequisite_ids("c", tasks) == ["b", "a"]
     assert prerequisite_ids("a", tasks) == [] and prerequisite_ids("zz", None) == []
+    # Could have been failed instead: not taken as finished.
+    tasks.append({"id": "d", "taskRequirements": [{"task": {"id": "a"}, "status": ["complete", "failed"]}]})
+    assert prerequisite_ids("d", tasks) == []
 
 
 # -- the app with demo data --------------------------------------------------------------------
@@ -217,6 +220,30 @@ def test_log_events_flow_to_progress_and_window(web, tmp_path):
     state = web.link.logs_state()
     assert state["running"] and state["session"] == "log_old" and state["gameMode"] == "pve"
     assert [e["kind"] for e in state["events"]] == ["quest", "mode", "raid"]
+
+
+def test_a_quest_you_took_means_the_ones_before_it_are_done(web, tmp_path):
+    # Painkiller taken in game (needs Sanitary Standards - Part 1, which needs
+    # Shortage) with the logs that saw those finished long gone: they're done.
+    painkiller = demo_task("Painkiller")
+    implied = web.link.set_quest_status("regular", [painkiller["id"]], "accepted")
+    names = {q["id"]: q["name"] for q in __import__("tests.demo", fromlist=["QUESTS"]).QUESTS}
+    assert sorted(names[i] for i in implied) == ["Sanitary Standards - Part 1", "Shortage"]
+    snap = web.progress.snapshot()
+    assert painkiller["id"] not in snap["tasks"] and painkiller["id"] in snap["accepted"]
+    assert set(implied) <= set(snap["tasks"])
+    assert web.link.set_quest_status("regular", [painkiller["id"]], "accepted") == []
+
+    # Same from old logs: the scan counts them, applying marks them.
+    web.progress.apply({"op": "tasks", "ids": implied, "done": False})
+    logs = tmp_path / "Logs"
+    app_log, notes = make_session(logs, "log_1", time.time() - 100)
+    append(app_log, line("10:00:00", "application", "Session mode: Regular"))
+    append(notes, quest("10:30:00", painkiller["id"], status=10))
+    web.link.logs_change({"path": str(logs)})
+    assert web.link.scan()["modes"]["regular"] == {"finished": 0, "new": 2, "accepted": 1, "failed": 0}
+    web.link.apply_scan()
+    assert set(implied) <= set(web.progress.snapshot()["tasks"])
 
 
 def test_scan_and_apply_old_logs(web, tmp_path):

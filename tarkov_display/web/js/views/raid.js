@@ -12,7 +12,7 @@ export default {
     mount(root, loading("Loading quests and maps…"));
     let tasks, maps;
     try {
-      [tasks, maps] = await Promise.all([dataset("tasks"), dataset("maps").catch(() => [])]);
+      [tasks, maps] = await Promise.all([dataset("tasks"), dataset("maps").catch(() => []), dataset("traders").catch(() => [])]);
     } catch (e) {
       mount(root, errorBox(e.message, () => this.render(root, { rest })));
       return;

@@ -100,3 +100,16 @@ def test_profile_in_export_and_applied(webapp, monkeypatch, tmp_path):
     assert webapp.progress.snapshot()["player_level"] == 40  # never lowered
     monkeypatch.setattr(pp, "account_id", lambda folder: None)
     assert "account id" in webapp.profile_refresh(quiet=True)["error"]
+
+
+def test_a_missing_profile_is_explained_in_words(tmp_path):
+    from tarkov_display.client import ApiError
+
+    html = "HTTP 404 Not Found: <html><head><title>404 Not Found</title></head><body><h1>404</h1></body></html>"
+    client = FakeClient([ApiError("HTTP 401 Unauthorized: {}"), ApiError(html)])
+    with pytest.raises(ValueError) as err:
+        pp.ProfileStore(tmp_path, client_for=lambda m: client).fetch("14545243", "regular", force=True)
+    text = str(err.value)
+    assert "<" not in text and "browser check" in text and "tarkov.dev/players/regular/14545243" in text
+    other = pp.not_found_message("1234", "pve", ["player.tarkov.dev: HTTP 500 boom", "players.tarkov.dev: <b>down</b>"])
+    assert "<" not in other and "HTTP 500 boom" in other

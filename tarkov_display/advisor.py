@@ -94,14 +94,27 @@ def trader_level(trader: Optional[dict], progress: dict) -> int:
     return 0 if _trader_key(trader) in LOCKED_TRADERS else 1
 
 
-def trader_blocks(task: dict, progress: dict) -> List[str]:
-    """Why your trader standing keeps a quest locked ([] = it doesn't). Only
-    once you've entered your trader levels: before that, nothing blocks."""
-    if not progress.get("traders"):
-        return []
+def ll_player_level(trader_id: Optional[str], ll, traders: Optional[List[dict]]) -> int:
+    """The player level a trader's loyalty level needs (0 = unknown)."""
+    for t in _objs(traders):
+        if t.get("id") == trader_id:
+            for lvl in _objs(t.get("levels")):
+                if lvl.get("level") == ll and isinstance(lvl.get("requiredPlayerLevel"), (int, float)):
+                    return int(lvl["requiredPlayerLevel"])
+    return 0
+
+
+def trader_blocks(task: dict, progress: dict, traders: Optional[List[dict]] = None) -> List[str]:
+    """Why your trader standing keeps a quest locked ([] = it doesn't). With
+    your trader levels entered, those count. Without them, only what is sure
+    from your player level: a loyalty level needs a player level (Prapor LL2
+    needs level 15, say), so a quest asking for it is out of reach below
+    that. ``traders``: tarkov.dev's trader list, for those player levels."""
+    entered = bool(progress.get("traders"))
+    level = progress.get("player_level") or 1
     out = []
     giver = task.get("trader")
-    if giver and trader_level(giver, progress) < 1:
+    if entered and giver and trader_level(giver, progress) < 1:
         out.append(f"{giver.get('name')} not unlocked")
     for r in _objs(task.get("traderRequirements")):
         trader, kind, value = r.get("trader"), r.get("requirementType") or "level", r.get("value")
@@ -109,13 +122,46 @@ def trader_blocks(task: dict, progress: dict) -> List[str]:
         if not isinstance(value, (int, float)) or not trader:
             continue
         if kind == "level":
-            if not test(trader_level(trader, progress), value):
-                out.append(f"{trader.get('name')} LL{value}")
-        elif kind == "reputation":
+            if entered:
+                if not test(trader_level(trader, progress), value):
+                    out.append(f"{trader.get('name')} LL{value}")
+            elif (r.get("compareMethod") or ">=") == ">=":
+                need = ll_player_level(trader.get("id"), value, traders)
+                if need > level:
+                    out.append(f"{trader.get('name')} LL{value} (level {need}+)")
+        elif kind == "reputation" and entered:
             rep = ((progress.get("traders") or {}).get(trader.get("id") or "") or {}).get("rep")
             if rep is not None and not test(rep, value):
                 out.append(f"{trader.get('name')} rep {value}")
     return out
+
+
+def quest_blocks(task: dict, progress: dict, traders: Optional[List[dict]] = None) -> List[str]:
+    """What, besides your level and earlier quests, keeps a quest from being
+    taken ([] = nothing): failed in game (and it can't be restarted), the
+    other side of a choice you already made (finishing one quest fails
+    another: its fail conditions), or trader standing. Like the Quests page."""
+    done, failed = set(progress.get("tasks") or []), set(progress.get("failed") or [])
+    out = []
+    if task.get("id") in failed and not task.get("restartable"):
+        out.append("Failed in game")
+    for f in _objs(task.get("failConditions")):
+        other = (f.get("task") or {}) if isinstance(f.get("task"), dict) else {}
+        if f.get("type") != "taskStatus" or not other.get("id") or other.get("id") == task.get("id"):
+            continue
+        status = _list(f.get("status"))
+        if "complete" in status and other["id"] in done:
+            out.append(f"Gone: you finished {other.get('name') or 'another quest'}")
+        elif "failed" in status and other["id"] in failed:
+            out.append(f"Gone: you failed {other.get('name') or 'another quest'}")
+    return out + trader_blocks(task, progress, traders)
+
+
+def needs_finished(requirement: dict) -> bool:
+    """A requirement on an earlier quest being finished: the quests marked
+    done along with a later one. Not when failing it would do too."""
+    status = _list((requirement or {}).get("status"))
+    return "complete" in status and "failed" not in status
 
 
 # Lightkeeper access after patch 1.1.5 (Sept 2026), per community guides.
@@ -153,12 +199,19 @@ def lightkeeper_checklist(tasks: Optional[List[dict]], traders: Optional[List[di
     return out
 
 
-def quest_states(tasks: List[dict], progress: dict) -> Dict[str, str]:
+def quest_states(tasks: List[dict], progress: dict, traders: Optional[List[dict]] = None) -> Dict[str, str]:
     """"done" | "available" | "locked" | "other" for every quest, like the
     Quests page works it out."""
     by_id = {t["id"]: t for t in tasks if isinstance(t, dict) and t.get("id")}
     done, level, faction = set(progress.get("tasks") or []), progress.get("player_level") or 1, progress.get("faction")
+    accepted, failed = set(progress.get("accepted") or []), set(progress.get("failed") or [])
     memo: Dict[str, str] = {}
+
+    def met(status: list, rid: str) -> bool:
+        # tarkov.dev lists the states that count: "complete", "failed" (some
+        # quests open when you fail another) and "active" (taken).
+        return (("complete" in status and rid in done) or ("failed" in status and rid in failed)
+                or ("active" in status and (rid in accepted or rid in done)))
 
     def state(task: dict, depth: int = 0) -> str:
         if task["id"] in memo:
@@ -168,18 +221,18 @@ def quest_states(tasks: List[dict], progress: dict) -> Dict[str, str]:
             s = "done"
         elif not for_faction(task, faction):
             s = "other"
-        elif (task.get("minPlayerLevel") or 0) > level or trader_blocks(task, progress):
+        elif (task.get("minPlayerLevel") or 0) > level or quest_blocks(task, progress, traders):
             s = "locked"
         else:
             for r in _objs(task.get("taskRequirements")):
                 req = by_id.get((r.get("task") or {}).get("id"))
-                if not req:
+                status = _list(r.get("status"))
+                if not req or met(status, req["id"]):
                     continue
-                if "complete" in _list(r.get("status")):
-                    if req["id"] not in done:
-                        s = "locked"
-                        break
-                elif depth < 50 and state(req, depth + 1) == "locked":
+                if "complete" in status or "failed" in status:  # has to be finished (or failed): it isn't yet
+                    s = "locked"
+                    break
+                if depth < 50 and state(req, depth + 1) == "locked":  # only has to be taken: and can't be yet
                     s = "locked"
                     break
         memo[task["id"]] = s
@@ -225,10 +278,10 @@ def objective_text(o: dict) -> str:
     return text + (f" ({', '.join(extra)})" if extra else "")
 
 
-def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
+def open_quests(tasks: List[dict], progress: dict, maps: List[dict], traders: Optional[List[dict]] = None) -> dict:
     """Available quests grouped by map, keys they need, and quests that
     unlock within a few levels."""
-    states = quest_states(tasks, progress)
+    states = quest_states(tasks, progress, traders)
     level = progress.get("player_level") or 1
     # Event, tutorial and high-level variants of maps only clutter the list.
     skip = {m.get("id") for m in _objs(maps)
@@ -244,7 +297,7 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
         s = states.get(task.get("id"))
         # Unlocking soon: held back only by your level, a few levels away.
         if (s == "locked" and level < (task.get("minPlayerLevel") or 0) <= level + 3
-                and not trader_blocks(task, progress)):
+                and not quest_blocks(task, progress, traders)):
             reqs_done = all("complete" not in _list(r.get("status")) or states.get((r.get("task") or {}).get("id")) == "done"
                             for r in _objs(task.get("taskRequirements")))
             if reqs_done:
@@ -308,11 +361,11 @@ def open_quests(tasks: List[dict], progress: dict, maps: List[dict]) -> dict:
 
 # -- pre-raid pack check --------------------------------------------------------------------
 
-def raid_kit(tasks: List[dict], progress: dict, map_id: str) -> dict:
+def raid_kit(tasks: List[dict], progress: dict, map_id: str, traders: Optional[List[dict]] = None) -> dict:
     """What to take into a raid on ``map_id`` for your raid plan (pinned
     quests; accepted ones if nothing is pinned): keys, markers, items to place
     or use, weapons. Like the Raid plan page's kit list."""
-    states = quest_states(tasks, progress)
+    states = quest_states(tasks, progress, traders)
     pinned = [t for t in _objs(tasks) if t.get("id") in set(progress.get("pinned") or []) and states.get(t.get("id")) != "done"]
     source = "pinned"
     if not pinned:
@@ -448,7 +501,7 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
     names = dict(item_names or {})
     history = history or {}
     adv = progress.get("advisor") or {}
-    q = open_quests(tasks, progress, maps)
+    q = open_quests(tasks, progress, maps, traders)
     out: List[str] = ["# RaidReady export for Claude", "", PROMPT, ""]
     stamp = now.strftime("%Y-%m-%d %H:%M")
     version = f", game {history['gameVersion']}" if history.get("gameVersion") else ""
@@ -482,7 +535,7 @@ def build(*, progress: dict, tasks: Optional[List[dict]], stations: Optional[Lis
             bits.append(text)
         out.append(f"- Traders: {', '.join(bits)}")
     else:
-        out.append("- Trader levels: not entered (quest availability ignores trader requirements)")
+        out.append("- Trader levels: not entered (quest availability only checks the player level each loyalty level needs)")
     if profile and profile.get("profile"):
         out += [""] + playerprofile.export_lines(profile)[:-1]
     if "lightkeeper" in (adv.get("goal") or "").lower() or standing:

@@ -1,7 +1,7 @@
 import { itemChip, traderAvatar } from "../components.js";
 import { badge, button, empty, errorBox, ext, fmt, h, icon, loading, local, mount, searchInput, segmented, select, stat, toast, toggle } from "../lib.js";
 import { failView, neededKeysView, objectiveView, objs, taskMapIds } from "../questinfo.js";
-import { dataset, on, prerequisites, questContext, questState, setProgress, store, traderBlocks } from "../store.js";
+import { dataset, on, prerequisites, questBlocks, questContext, questState, setProgress, store } from "../store.js";
 
 const state = {
   q: "", status: local.get("quests.status", "available"), trader: null, map: "all",
@@ -16,7 +16,8 @@ export default {
     if (query.q) { state.q = query.q; state.status = "all"; }
     mount(root, loading("Loading quests from tarkov.dev…"));
     let tasks, allMaps;
-    try { [tasks, allMaps] = await Promise.all([dataset("tasks"), dataset("maps").catch(() => [])]); } catch (e) {
+    // Trader data too: a quest asking for a trader loyalty level is out of reach below that level's player level.
+    try { [tasks, allMaps] = await Promise.all([dataset("tasks"), dataset("maps").catch(() => []), dataset("traders").catch(() => [])]); } catch (e) {
       mount(root, errorBox(e.message, () => this.render(root, { query })));
       return;
     }
@@ -43,7 +44,7 @@ export default {
         stat("Available now", count("available"), { kind: "accent", sub: `at level ${ctx.level}` }),
         stat("Done", `${count("done")} / ${mine.length}`, { sub: fmt.pct(count("done") / Math.max(1, mine.length)) }),
         stat("Kappa", `${kappa.filter((t) => ctx.done.has(t.id)).length} / ${kappa.length}`, { sub: "quests needed for Kappa" }),
-        stat("Locked", count("locked"), { sub: Object.keys(ctx.traders).length ? "level, traders or earlier quests" : "level or earlier quests" }));
+        stat("Locked", count("locked"), { sub: "level, traders, earlier quests or choices" }));
       drawProfile();
 
       let rows = mine.filter((t) => {
@@ -110,12 +111,14 @@ export default {
     return on((kind, detail) => {
       if (kind === "progress") draw();
       if (kind === "data" && detail === "tasks") dataset("tasks").then((t) => { tasks = t; draw(); }).catch(() => {});
+      if (kind === "data" && detail === "traders") draw();
     });
   },
 };
 
 function questCard(t, ctx) {
   const s = questState(t, ctx);
+  const blocks = s === "locked" ? questBlocks(t, ctx).map((b) => (/^(Failed|Gone)|not unlocked$/.test(b) ? b : `Needs ${b}`)) : [];
   const el = h("article.quest." + s + (open.has(t.id) ? ".open" : ""));
   const toggleOpen = () => {
     if (open.has(t.id)) open.delete(t.id); else open.add(t.id);
@@ -145,7 +148,7 @@ function questCard(t, ctx) {
           t.minPlayerLevel ? h("span", `Level ${t.minPlayerLevel}+`) : null,
           t.map ? h("span", t.map.name) : null,
           t.experience ? h("span", `${fmt.num(t.experience)} XP`) : null,
-          s === "locked" && traderBlocks(t, ctx.traders).length ? h("span.q-block", `Needs ${traderBlocks(t, ctx.traders).join(", ")}`) : null)),
+          s === "locked" && blocks.length ? h("span.q-block", blocks.join(", ")) : null)),
       h("span.state-pill." + s, s === "available" ? "Available" : s === "done" ? "Done" : "Locked"),
       pin,
       action,
