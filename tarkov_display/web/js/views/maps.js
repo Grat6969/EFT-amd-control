@@ -838,7 +838,9 @@ function keys(m) {
     }
   }
   const rows = [...new Map(locks.map((l) => [l.key.id + (l.lockType || ""), l])).values()];
-  return h("section.card.flush", h("div.card-body", table({
+  return h("section.card.flush",
+    h("div.card-body", { style: { padding: "10px 14px 0" } }, h("a.small", { href: `#/keys?map=${encodeURIComponent(m.normalizedName || "")}` }, icon("key", 14), " Best keys for this map, and the keys you have: Keys page")),
+    h("div.card-body", table({
     rows, sortKey: "price", sortDir: "desc",
     columns: [
       { key: "key", label: "Key", sort: (l) => l.key.name, render: (l) => itemChip(l.key, null) },

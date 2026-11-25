@@ -8,8 +8,8 @@ import { buyPrice, dataset, on, questContext, questState, searchItems, setProgre
 
 const MINE = "*mine*";  // the "My keys" choice in the map list
 const SKIP_MAP_WORDS = ["Tutorial", "Infected"];
-const GOOD = 30;  // loot points near the door (see keyrooms.py) for "good loot"...
-const SOME = 10;  // ... and for "some loot"
+const GOOD = 50;  // loot points near the door (see keyrooms.loot_score) for "good loot"...
+const SOME = 15;  // ... and for "some loot"
 const TIERS = [
   ["marked", "Marked rooms", "Marked loot spawns: the best keys on the map", "accent"],
   ["quest", "For your quests", "Your open quests need these", "info"],
@@ -24,7 +24,8 @@ let reading = null;  // the screenshot being read, and what was found (survives 
 export default {
   title: "Keys",
   subtitle: "The best keys for each map, and the keys you have",
-  async render(root) {
+  async render(root, { query } = {}) {
+    if (query?.map) state.map = query.map;
     mount(root, loading("Loading maps and keys…"));
     let maps, tasks;
     try {
@@ -33,8 +34,9 @@ export default {
       mount(root, errorBox(e.message, () => this.render(root)));
       return;
     }
-    maps = maps.filter((m) => !SKIP_MAP_WORDS.some((w) => (m.name || "").includes(w)) && (m.locks || []).some((l) => l.key))
+    const keyMaps = (list) => list.filter((m) => !SKIP_MAP_WORDS.some((w) => (m.name || "").includes(w)) && (m.locks || []).some((l) => l.key))
       .sort((a, b) => a.name.localeCompare(b.name));
+    maps = keyMaps(maps);
     if (!state.map || (state.map !== MINE && !maps.some((m) => m.normalizedName === state.map))) state.map = maps[0]?.normalizedName || MINE;
 
     const summary = h("div.stat-grid");
@@ -83,7 +85,8 @@ export default {
     document.addEventListener("paste", onPaste);
     const off = on((kind, detail) => {
       if (kind === "progress") { draw(); drawAdder(adder, draw); }
-      if (kind === "data" && (detail === "maps" || detail === "tasks")) this.render(root);
+      if (kind === "data" && detail === "maps") dataset("maps").then((d) => { maps = keyMaps(d); draw(); }).catch(() => {});
+      if (kind === "data" && detail === "tasks") dataset("tasks").then((d) => { tasks = d; draw(); }).catch(() => {});
       if (kind === "items") draw();
     });
     return () => { document.removeEventListener("paste", onPaste); off(); };

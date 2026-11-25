@@ -26,19 +26,29 @@ def test_loot_near_a_door():
             {"lootContainer": "c-wb", "position": pos(4, 4, y=6)},         # a floor up: not counted
             {"lootContainer": "c-wb", "position": pos(30, 0)},             # far away
         ],
-        "lootLoose": [{"items": ["ledx", "bolts"], "position": pos(2, 0)}, {"items": ["gpu"], "position": pos(80, 80)}],
+        "lootLoose": [{"items": ["ledx", "bolts", "btc"], "position": pos(2, 0)}, {"items": ["gpu", "btc"], "position": pos(80, 80)}]
+                     + [{"items": ["btc"], "position": pos(500 + n, 500)} for n in range(40)],  # Bitcoin: almost anywhere
     }
     names = {"c-safe": "Safe", "c-jacket": "Jacket", "c-wb": "Weapon box"}
-    values = {"ledx": 1_000_000, "bolts": 20_000, "gpu": 500_000}
+    values = {"ledx": 1_000_000, "bolts": 20_000, "gpu": 500_000, "btc": 800_000}
     loot = keyrooms.key_loot(m, names, values.get, lambda i: {"id": i, "shortName": i.upper()})
     safe = loot["k-safe"]
     assert safe["containers"] == [{"name": "Safe", "count": 2}, {"name": "Jacket", "count": 1}]
-    assert [i["id"] for i in safe["loose"]] == ["ledx", "bolts"] and safe["loose"][0]["value"] == 1_000_000
-    assert safe["doors"] == 2 and safe["score"] == 2 * 35 + 4 + 20 + 1  # LEDX capped at 20 points, bolts ~1
+    assert [i["id"] for i in safe["loose"]] == ["ledx", "bolts"] and safe["loose"][0]["value"] == 1_000_000  # not the Bitcoin
+    assert safe["doors"] == 2 and safe["score"] == round(2 * 35 + 4 + 6 + 20_000 / 150_000)  # LEDX capped at 6 points
     assert loot["k-empty"] == {"containers": [], "loose": [], "score": 0, "doors": 1}
     assert "k-none" not in loot  # no position: nothing to go on
     assert keyrooms.container_points("Bank safe") == 40 and keyrooms.container_points("Ammo crate") == 6
     assert keyrooms.container_points("Something new") == keyrooms.OTHER_CONTAINER
+
+
+def test_loot_score_doesnt_let_numbers_of_cheap_things_win():
+    drawers = keyrooms.loot_score({"Drawer": 32}, [])
+    safe = keyrooms.loot_score({"Safe": 1}, [])
+    assert drawers == keyrooms.CHEAP_CAP < safe
+    assert keyrooms.loot_score({"Safe": 9}, []) == 35 * keyrooms.SAME_KIND_CAP
+    # Bitcoin-everywhere loose loot adds a little, never much.
+    assert keyrooms.loot_score({}, [810_000, 810_000, 810_000, 810_000]) == keyrooms.LOOSE_CAP
 
 
 KEYS = [SimpleNamespace(id=i, name=n, short_name=s, is_preset=False, icon="", tags=["keys"]) for i, n, s in (

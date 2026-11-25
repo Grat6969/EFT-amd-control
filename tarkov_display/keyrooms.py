@@ -31,8 +31,15 @@ CONTAINER_POINTS: Tuple[Tuple[str, int], ...] = (
     ("dead scav", 7), ("ammo", 6), ("jacket", 4), ("drawer", 4), ("filing cabinet", 4),
 )
 OTHER_CONTAINER = 4
-LOOSE_CAP = 20          # points for one valuable loose item at most...
-LOOSE_ROUBLES = 25000   # ... at a point per this many roubles
+CHEAP = 6               # containers worth this little (drawers, jackets)...
+CHEAP_CAP = 16          # ... add up to this many points together: a room of 30 drawers isn't a safe
+SAME_KIND_CAP = 4       # more than this many of one good container count as this many
+# Loose loot: tarkov.dev lists every item a spawn spot can hold, and most
+# spots near most doors can hold a Bitcoin, so it counts for little.
+LOOSE_ITEM_CAP = 6      # points for one valuable loose item at most...
+LOOSE_ROUBLES = 150000  # ... at a point per this many roubles...
+LOOSE_CAP = 12          # ... and for all of them together
+RARE = 0.05             # loose items only count where they're rare: in at most this share of the map's spots
 
 
 def container_points(name: str) -> int:
@@ -41,6 +48,20 @@ def container_points(name: str) -> int:
         if word in low:
             return points
     return OTHER_CONTAINER
+
+
+def loot_score(counts: Dict[str, int], loose_values: Sequence[float]) -> float:
+    """Points for the containers near a door ({name: how many}) and the
+    values of the best loose loot that can spawn there (most valuable first)."""
+    good = cheap = 0.0
+    for name, n in counts.items():
+        points = container_points(name)
+        if points <= CHEAP:
+            cheap += points * n
+        else:
+            good += points * min(n, SAME_KIND_CAP)
+    loose = sum(min(LOOSE_ITEM_CAP, v / LOOSE_ROUBLES) for v in list(loose_values)[:3])
+    return good + min(cheap, CHEAP_CAP) + min(loose, LOOSE_CAP)
 
 
 def _pos(p) -> Optional[Tuple[float, float, float]]:
@@ -70,7 +91,10 @@ def key_loot(m: dict, container_names: Dict[str, str], item_value: Callable[[str
              item_ref: Callable[[str], dict]) -> Dict[str, dict]:
     """{key id: {"containers": [{name, count}], "loose": [{id, name, ...}], "score"}}
     for every key that opens a door on map ``m`` (a map from tarkov.dev's
-    map file: locks, lootContainers and lootLoose with positions).
+    map file: locks, lootContainers and lootLoose with positions). Loose
+    loot lists only items that can spawn in few places on the map (the
+    LEDX spot, a marked room's keycards), not the ones that can spawn almost
+    anywhere.
     ``container_names``: container id -> name; ``item_value``: roubles."""
     containers = []
     for c in m.get("lootContainers") or []:
@@ -89,6 +113,12 @@ def key_loot(m: dict, container_names: Dict[str, str], item_value: Callable[[str
         ids = [i for i in (_ref_id(x) for x in spot.get("items") or []) if i]
         if p and ids:
             loose.append((ids, p))
+    # How many of the map's loose loot spots each item can spawn in.
+    spots_with: Dict[str, int] = {}
+    for ids, _ in loose:
+        for i in set(ids):
+            spots_with[i] = spots_with.get(i, 0) + 1
+    rare = {i for i, n in spots_with.items() if n <= max(1, RARE * len(loose))}
     doors: Dict[str, List[Tuple[float, float, float]]] = {}
     for lock in m.get("locks") or []:
         if not isinstance(lock, dict):
@@ -107,11 +137,10 @@ def key_loot(m: dict, container_names: Dict[str, str], item_value: Callable[[str
         for ids, p in loose:
             if any(_near(p, d) for d in spots):
                 for i in ids:
-                    if i not in values:
+                    if i in rare and i not in values:
                         values[i] = item_value(i) or 0
         top = sorted((i for i in values if values[i] > 0), key=lambda i: -values[i])[:KEEP_LOOSE]
-        score = sum(container_points(name) * n for name, n in counts.items())
-        score += sum(min(LOOSE_CAP, values[i] / LOOSE_ROUBLES) for i in top[:3])
+        score = loot_score(counts, [values[i] for i in top])
         out[kid] = {
             "containers": [{"name": name, "count": n} for name, n in
                            sorted(counts.items(), key=lambda kv: (-container_points(kv[0]), -kv[1], kv[0]))],

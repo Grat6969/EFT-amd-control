@@ -110,6 +110,7 @@ stored in `%APPDATA%\TarkovDisplay` and are kept.
 | **Needed items** | Everything your unfinished quests and hideout still need, found-in-raid counts, a "have" counter for each item, and the cost to buy the rest |
 | **Achievements** | All achievements with rarity and how many players have them; tick off yours |
 | **Maps** | Extracts (red ring = an open quest needs it, e.g. Information Source's car exits), transits, locked doors, PMC spawns and BTR stops as switchable layers; a marker for every quest's objectives on its map, named and coloured per quest (see [Quest markers](#quest-markers)), zoomable 2D/3D map images, your own markers and notes (right-click to add, drag to move, **Pop out** for a separate window), bosses with spawn chances, extracts by faction, every locked door with its key's price and whether a quest needs it, transits and hazards |
+| **Keys** | The keys for a map, best first: marked rooms, keys your open quests need, then by the loot near each door (safes, weapon boxes, valuable loose loot spawns) down to doors with little behind them, with prices. Tick the keys you have, add one you just found by name, or read them off a screenshot of your key tool (see [Keys](#keys)). **My keys** lists yours and the maps they open |
 | **Bosses** | Health per body part, where and how often they spawn, escorts, likely gear |
 | **Traders** | Your loyalty level and reputation with each trader (so quests you can't take yet stay locked), a Road to Lightkeeper checklist, restock countdowns, loyalty level requirements, everything each trader sells |
 | **Display** | Display profiles, auto-boost and price-check settings |
@@ -120,6 +121,21 @@ night (21:00-06:00). Factory and The Lab have fixed times.
 
 Progress is saved on your PC, separately for PvP and PvE. **Settings → Backup** exports
 it to a file.
+
+## Keys
+
+**Keys** ranks a map's keys: marked rooms first, then keys your open quests need, then by
+what's near each door, down to doors with little behind them. "Near the door" comes from
+tarkov.dev's map data: the loot containers and loose loot spawns within about 9 metres of
+the door, on the same floor. The data doesn't say which room a container is in, so it can
+take in a corridor or the room next door; treat it as a guide.
+
+Tick the keys you have. To add several at once, open your key tool or keycase in game so the
+key labels show, press Print Screen (Tarkov saves the screenshot), then press **Read my
+newest Tarkov screenshot**. You can also choose a picture, paste a snip (`Win+Shift+S`,
+then `Ctrl+V`) or drop one on the page. The labels are read with the same text recognition
+as the price check, and you untick any it got wrong before adding. A one-off key: type its
+name under **Add a key you found**.
 
 ## Raid plan
 
@@ -435,6 +451,8 @@ What RaidReady does, and doesn't do:
 - **Auto-boost** (off by default): looks at 5 small patches of the screen a few times a
   second to tell when the scene is dark.
 - **Game log reader** (off by default): reads the text log files Tarkov writes, read-only.
+- **Keys from a screenshot**: only when you press the button, opens your newest Tarkov
+  screenshot (or the picture you give it) and reads the key labels on your PC.
 - **Display settings**: go through your AMD driver and the Windows gamma ramp, the same
   settings AMD Software changes.
 - The app's window is served from your own PC (127.0.0.1) and only that window can use
