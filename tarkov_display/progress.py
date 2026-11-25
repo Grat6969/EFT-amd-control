@@ -239,6 +239,18 @@ class Progress:
                     d["owned"][item] = count
                 else:
                     d["owned"].pop(item, None)
+            elif kind == "owned_many":  # several at once, e.g. keys read off a screenshot
+                items = op.get("items")
+                if not isinstance(items, dict) or len(items) > 500:
+                    raise ProgressError("bad items")
+                for item, count in items.items():
+                    if not isinstance(item, str) or not ID.match(item):
+                        raise ProgressError("bad item id")
+                    count = _int(count, 0, 99999)
+                    if count:
+                        d["owned"][item] = count
+                    else:
+                        d["owned"].pop(item, None)
             elif kind == "profile":
                 for key, (lo, hi) in LIMITS.items():
                     if key in op:

@@ -202,6 +202,7 @@ def check_mode(rep: Report, mode: str, args) -> None:
     types = check_tasks(rep, mode, out.get("tasks") or [], map_ids)
     print("  objective types:", dict(types.most_common()))
     check_quest_maps(rep, mode, out, args.map_images, dump=args.dump_quest_maps and mode == "regular")
+    check_key_loot(rep, mode, maps, args.dump_keys if mode == "regular" else "")
 
     for station in out.get("hideout") or []:
         for level in station.get("levels") or []:
@@ -443,6 +444,34 @@ def check_price_watch(rep: Report, mode: str, client: TarkovClient, items) -> No
         rep.error(f"[{mode}] price watch crashed:\n{traceback.format_exc()}")
 
 
+def check_key_loot(rep: Report, mode: str, maps: list, dump: str = "") -> None:
+    """Loot near each key's doors (keyrooms.py): there for most keys, and,
+    with ``dump`` (comma-separated maps), printed to check by eye."""
+    for m in maps:
+        keys = {(l.get("key") or {}).get("id") for l in m.get("locks") or [] if (l.get("key") or {}).get("id")}
+        placed = {(l.get("key") or {}).get("id") for l in m.get("locks") or [] if l.get("position")}
+        loot = m.get("keyLoot") or {}
+        if placed and not loot:
+            rep.error(f"[{mode}] {m.get('name')}: {len(placed)} placed doors but no loot worked out near them")
+        elif keys - set(loot):
+            rep.warn("keys with no placed door (no loot estimate)", f"{m.get('name')}: {len(keys - set(loot))} of {len(keys)}")
+        print(f"  {m.get('name')}: {len(keys)} keys, {len(loot)} with loot estimates")
+    wanted = [w for w in dump.split(",") if w]
+    for m in maps:
+        if m.get("normalizedName") not in wanted:
+            continue
+        names = {(l.get("key") or {}).get("id"): (l.get("key") or {}).get("name") for l in m.get("locks") or []}
+        rows = sorted((m.get("keyLoot") or {}).items(), key=lambda kv: -kv[1]["score"])
+        DUMP.append(f"== key loot: {m.get('name')} ({len(rows)} keys, best first) ==")
+        for kid, e in rows[:25] + ([("...", None)] if len(rows) > 35 else []) + rows[-10:] if len(rows) > 35 else rows:
+            if e is None:
+                DUMP.append("   ...")
+                continue
+            boxes = ", ".join(f"{c['count']}x {c['name']}" for c in e["containers"][:6])
+            loose = ", ".join(f"{i.get('shortName')} {i.get('value', 0) // 1000}k" for i in e["loose"][:3])
+            DUMP.append(f"  {e['score']:4} {names.get(kid, kid)[:44]:44} doors {e['doors']} | {boxes} | {loose}")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--save", type=Path, help="keep downloaded files here")
@@ -451,6 +480,7 @@ def main(argv=None) -> int:
     parser.add_argument("--dump-quest-maps", action="store_true", help="print PvP quest markers, compressed, to draw elsewhere")
     parser.add_argument("--only-quest-maps", action="store_true", help="only the quest map check, PvP")
     parser.add_argument("--dump-maps", default="", help="comma-separated maps to dump (default: all)")
+    parser.add_argument("--dump-keys", default="", help="comma-separated maps whose key loot to print (PvP)")
     args = parser.parse_args(argv)
     DUMP_MAPS.update(m for m in args.dump_maps.split(",") if m)
     args.map_images = None
@@ -462,6 +492,7 @@ def main(argv=None) -> int:
         client = TarkovClient(game_mode="regular", timeout=120)
         out = {"maps": staticapi.maps(client), "tasks": staticapi.tasks(client)}
         check_quest_maps(rep, "regular", out, args.map_images, dump=args.dump_quest_maps)
+        check_key_loot(rep, "regular", out["maps"], args.dump_keys)
         return finish(rep)
     try:
         status = staticapi.status(TarkovClient())

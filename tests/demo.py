@@ -235,6 +235,14 @@ for k, (name, norm, players, duration) in enumerate(MAP_NAMES):
         "locks": [{"lockType": "door", "needsPower": False, "key": ref("314")}, {"lockType": "door", "needsPower": False, "key": ref("206")},
                   {"lockType": "container", "needsPower": True, "key": ref("KIBA")}],
         "hazards": [{"hazardType": "minefield", "name": "Minefield"}, {"hazardType": "sniper", "name": "Scav sniper"}][: k % 3],
+        # Loot near each key's doors (worked out from positions by keyrooms.py in the real app).
+        "keyLoot": {
+            ref("314")["id"]: {"containers": [{"name": "Weapon box", "count": 2}, {"name": "Jacket", "count": 1}],
+                               "loose": [dict(ref("LEDX"), value=1020000), dict(ref("GPU"), value=452000)], "score": 54, "doors": 1},
+            ref("KIBA")["id"]: {"containers": [{"name": "Weapon box", "count": 1}, {"name": "Grenade box", "count": 1}],
+                                "loose": [], "score": 25, "doors": 1},
+            ref("206")["id"]: {"containers": [{"name": "Drawer", "count": 1}], "loose": [], "score": 4, "doors": 1},
+        },
     })
 
 QUESTS = []

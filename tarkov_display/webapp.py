@@ -11,7 +11,7 @@ from collections import deque
 from dataclasses import asdict
 from typing import List, Optional
 
-from . import APP_NAME, __version__, advisor, gamelogs, playerprofile, questmap, staticapi, story
+from . import APP_NAME, __version__, advisor, gamelogs, keyrooms, playerprofile, questmap, screenshots, staticapi, story
 from .app import App
 from .datasets import DATASETS, DataStore
 from .linking import GameLink
@@ -467,6 +467,76 @@ class WebApp:
         result = mcp.self_test()
         log.info("Claude Desktop tool self-test: %s", result)
         return result
+
+    # -- keys page: reading keys off a screenshot ----------------------------
+
+    def _key_engine(self):
+        """The OCR engine for reading keys (made the first time it's needed)."""
+        with self._lock:
+            if getattr(self, "_key_ocr", None) is None:
+                from .ocr import create_ocr
+
+                self._key_ocr = create_ocr()
+            return self._key_ocr
+
+    def keys_ocr_info(self) -> dict:
+        try:
+            engine = self._key_engine()
+        except Exception as exc:
+            return {"engine": None, "error": str(exc)}
+        return {"engine": type(engine).__name__, "maxDimension": int(getattr(engine, "max_dimension", 2600))}
+
+    def _key_matcher(self) -> keyrooms.KeyMatcher:
+        items = self.app.prices.items
+        if getattr(self, "_key_matcher_for", None) is not items:
+            self._key_matcher_cache = keyrooms.KeyMatcher([i for i in items if "keys" in (i.tags or [])])
+            self._key_matcher_for = items
+        return self._key_matcher_cache
+
+    def keys_read(self, gray: bytes, w: int, h: int, x: float = 0, y: float = 0, scale: float = 1) -> dict:
+        """Keys read off a piece of a screenshot: ``gray`` is ``w`` x ``h`` grey
+        pixels, the piece at (x, y) in the screenshot, enlarged ``scale`` times."""
+        if not isinstance(gray, (bytes, bytearray)) or w <= 0 or h <= 0 or w * h != len(gray):
+            raise ValueError("the picture's size doesn't match its pixels")
+        if not 0.25 <= scale <= 8:
+            raise ValueError("bad scale")
+        engine = self._key_engine()
+        limit = int(getattr(engine, "max_dimension", 2600))
+        if max(w, h) > limit:
+            raise ValueError(f"piece too big for the text reader ({limit} pixels at most)")
+        if not self.app.prices.items:
+            raise ValueError("Prices aren't downloaded yet, so RaidReady doesn't know the keys. Try again in a moment.")
+        lines = engine.read(keyrooms.gray_to_bgra(bytes(gray)), w, h)
+        matcher = self._key_matcher()
+        found = []
+        for hit in matcher.match(lines, (x, y), scale):
+            key = matcher.keys[hit["id"]]
+            found.append(dict(hit, name=key.name, shortName=key.short_name, icon=key.icon))
+        return {"lines": [l.text for l in lines], "found": found}
+
+    def keys_screenshot(self) -> Raw:
+        """Your newest Tarkov screenshot (Documents\\Escape From Tarkov\\Screenshots)."""
+        import os
+        from urllib.parse import quote
+
+        folder = screenshots.default_folder()
+        best, when = None, 0.0
+        try:
+            with os.scandir(folder) as it:
+                for entry in it:
+                    if entry.is_file() and entry.name.lower().endswith((".png", ".jpg", ".jpeg")):
+                        t = entry.stat().st_mtime
+                        if t > when:
+                            best, when = entry, t
+        except OSError:
+            pass
+        if best is None:
+            raise ValueError(f"No Tarkov screenshots in {folder}. Press your screenshot key in game "
+                             "(Print Screen by default) with your keys on screen, then try again.")
+        with open(best.path, "rb") as fh:
+            body = fh.read()
+        ctype = "image/png" if best.name.lower().endswith(".png") else "image/jpeg"
+        return Raw(body, ctype, {"Cache-Control": "no-store", "X-Shot-Name": quote(best.name), "X-Shot-Time": str(int(when))})
 
     def lightkeeper_state(self) -> dict:
         return {"checklist": advisor.lightkeeper_checklist(self.store.get("tasks", 20)["data"],

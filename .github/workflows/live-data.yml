@@ -20,6 +20,7 @@ on:
       - "tarkov_display/staticapi.py"
       - "tarkov_display/datasets.py"
       - "tarkov_display/prices.py"
+      - "tarkov_display/keyrooms.py"
       - "tests/live_check.py"
       - "tests/replay.py"
       - "tests/ui_crawl.mjs"
@@ -85,4 +86,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: Quest markers on every map
-        run: python -m tests.live_check --only-quest-maps --dump-quest-maps --dump-maps customs,shoreline
+        run: python -m tests.live_check --only-quest-maps --dump-quest-maps --dump-maps customs,shoreline --dump-keys customs,reserve,streets-of-tarkov

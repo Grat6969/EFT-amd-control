@@ -30,6 +30,8 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 STATIC_NAME = re.compile(r"(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*")
 APP_ID = "tarkov-companion"
 MAX_BODY = 2 * 1024 * 1024
+MAX_IMAGE = 40 * 1024 * 1024  # a piece of a screenshot, grey, enlarged (POST /api/keys/read)
+RAW_ROUTES = ("/api/keys/read",)  # take raw bytes, not JSON
 # Fixed types: on Windows, mimetypes reads the registry, where .js or .css can
 # be mapped to text/plain, and browsers then refuse to run or apply them.
 CONTENT_TYPES = {
@@ -300,6 +302,23 @@ class Server:
         def advisor_open(req, m, q, body):
             return ctx.advisor_open_folder()
 
+        @r("GET", "/api/keys/ocr")
+        def keys_ocr(req, m, q, body):
+            return ctx.keys_ocr_info()
+
+        @r("POST", "/api/keys/read")
+        def keys_read(req, m, q, body):
+            def num(name, default=None):
+                try:
+                    return float((q.get(name) or [default])[0])
+                except (TypeError, ValueError):
+                    raise ValueError(f"bad {name}") from None
+            return ctx.keys_read(body, int(num("w")), int(num("h")), num("x", 0), num("y", 0), num("scale", 1))
+
+        @r("GET", "/api/keys/screenshot")
+        def keys_screenshot(req, m, q, body):
+            return ctx.keys_screenshot()
+
         @r("POST", "/api/quit")
         def quit_app(req, m, q, body):
             ctx.quit()
@@ -400,8 +419,24 @@ class Server:
                 except ValueError:
                     raise HttpError(400, "bad JSON") from None
 
+            def _read_raw(self) -> bytes:
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    raise HttpError(400, "bad Content-Length") from None
+                if length <= 0:
+                    raise HttpError(400, "empty body")
+                if length > MAX_IMAGE:
+                    raise HttpError(413, "request too large")
+                if "application/octet-stream" not in (self.headers.get("Content-Type") or ""):
+                    raise HttpError(415, "send application/octet-stream")
+                return self.rfile.read(length)
+
             def _api(self, method: str, path: str, query: dict) -> None:
-                body = self._read_json() if method == "POST" else None
+                if method == "POST":
+                    body = self._read_raw() if path in RAW_ROUTES else self._read_json()
+                else:
+                    body = None
                 for route_method, pattern, fn in server.routes:
                     m = pattern.match(path)
                     if m and route_method == method:
@@ -421,7 +456,7 @@ class Server:
                     return self._send(200, html.encode(), "text/html; charset=utf-8", {
                         "Cache-Control": "no-store",
                         "Content-Security-Policy": (
-                            "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; "
+                            "default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; "
                             "script-src 'self'; connect-src 'self'; frame-ancestors 'none'"
                         ),
                     })

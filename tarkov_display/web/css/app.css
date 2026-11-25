@@ -704,3 +704,31 @@ body.popout #app { display: block; }
 .place-pin.btr .pp-dot { background: #9c88d6; }
 .place-pin.you .pp-dot { background: #ff4d6a; border-radius: 50%; width: 16px; height: 16px; animation: you-pulse 1.6s ease-out infinite; }
 @keyframes you-pulse { 0% { box-shadow: 0 0 0 0 rgba(255,77,106,.7); } 100% { box-shadow: 0 0 0 14px rgba(255,77,106,0); } }
+
+/* ---------- keys ---------- */
+.view-keys .toolbar { margin: 4px 0; }
+.key-list { display: flex; flex-direction: column; }
+.key-row { display: grid; grid-template-columns: 26px minmax(180px, 320px) 1fr auto auto; align-items: center; gap: 12px; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.key-row:last-child { border-bottom: 0; }
+.key-row.have .chip { border-color: rgba(125, 196, 128, .45); }
+.key-have { display: grid; place-items: center; cursor: pointer; }
+.key-have input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.key-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.key-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.key-loot { color: var(--text-2); }
+.key-price { font-variant-numeric: tabular-nums; color: var(--text-2); white-space: nowrap; }
+.key-search-results { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.key-suggest { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px 4px 4px; color: var(--text); cursor: pointer; text-align: left; }
+.key-suggest:hover { border-color: var(--accent-2); background: var(--panel-3); }
+.key-suggest span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-drop { border: 1px dashed var(--line-2); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.key-drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.key-drop-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.key-reading { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.key-reading-head { display: flex; align-items: center; gap: 10px; }
+.key-shot { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); flex: none; }
+.key-found { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow: auto; }
+.key-found-row { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.key-found-row:hover { background: var(--panel-2); }
+.key-lines summary { cursor: pointer; }
+@media (max-width: 900px) { .key-row { grid-template-columns: 26px 1fr auto; } .key-main { grid-column: 2 / -1; } }

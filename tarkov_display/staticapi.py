@@ -26,6 +26,7 @@ import time
 from functools import cached_property
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
+from . import keyrooms
 from .client import ApiError, TarkovClient
 
 log = logging.getLogger(__name__)
@@ -540,8 +541,20 @@ def maps(client: TarkovClient) -> List[dict]:
             out["imagePortraitLink"] = m.get("imagePortraitLink")
         return out
 
+    containers = {cid: (c or {}).get("name") for cid, c in _index(src.maps_file.get("lootContainers")).items()
+                  if isinstance(c, dict)}
+
+    def value(item_id: str) -> float:
+        it = src.items.get(item_id) or {}
+        return _number(it.get("avg24hPrice") or it.get("lastLowPrice") or it.get("basePrice"))
+
     out = []
     for m in src.map_index.values():
+        try:
+            loot = keyrooms.key_loot(m, containers, value, src.item)
+        except Exception:  # an estimate only: never worth losing the maps over
+            log.warning("Couldn't work out the loot near %s's doors", m.get("name"), exc_info=True)
+            loot = {}
         out.append({
             **{k: m.get(k) for k in ("id", "name", "normalizedName", "nameId", "wiki", "description", "enemies",
                                      "raidDuration", "players", "minPlayerLevel", "maxPlayerLevel",
@@ -568,6 +581,8 @@ def maps(client: TarkovClient) -> List[dict]:
             "btrStops": [{"name": x.get("name"), **_placed(x if "position" in x else {"position": x})}
                          for x in m.get("btrStops") or [] if isinstance(x, dict)],
             "hazards": [{"hazardType": x.get("hazardType"), "name": x.get("name")} for x in m.get("hazards") or []],
+            # Per key: containers and loose loot near its doors (see keyrooms.py).
+            "keyLoot": loot,
         })
     if not out:
         raise ApiError("tarkov.dev's map file has no maps")
