@@ -154,6 +154,66 @@ def _():
     return f"{len(NAMES)}/{len(NAMES)} read and matched"
 
 
+# Key labels in a key tool (short names as the game prints them), and a few
+# keys whose labels aren't on screen, so a wrong match has somewhere to go.
+KEY_LABELS = ["314", "206", "KIBA", "GS", "Factory", "RB-BK", "ZB-014", "RB-VO", "Red", "MO 3", "208"]
+OTHER_KEYS = ["203", "RB-PSP2", "Blue", "KPP"]
+
+
+@check("Windows OCR reads key labels off a key tool screenshot (Keys page)")
+def _():
+    from types import SimpleNamespace
+
+    from tarkov_display.keyrooms import KeyMatcher, gray_to_bgra
+    from tarkov_display.ocr import OcrUnavailable, WindowsOcr
+
+    try:
+        ocr = WindowsOcr()
+        from PIL import Image, ImageDraw, ImageFont
+    except (OcrUnavailable, ImportError) as exc:
+        raise Skip(str(exc))
+    keys = [SimpleNamespace(id=l, name=f"Key {l}", short_name=l, is_preset=False) for l in KEY_LABELS + OTHER_KEYS]
+    font = None
+    for name in ("bahnschrift.ttf", "arial.ttf"):
+        try:
+            font = ImageFont.truetype(name, 11)
+            break
+        except OSError:
+            pass
+    font = font or ImageFont.load_default()
+    img = Image.new("RGB", (1920, 1080), (16, 17, 17))
+    d = ImageDraw.Draw(img)
+    x0, y0, cell = 820, 420, 64
+    for i, lab in enumerate(KEY_LABELS):
+        x, y = x0 + (i % 4) * cell, y0 + (i // 4) * cell
+        d.rectangle((x, y, x + cell - 1, y + cell - 1), fill=(34, 36, 37), outline=(48, 50, 50))
+        d.rectangle((x + 14, y + 22, x + 50, y + 40), fill=(150, 140, 90))  # the key's picture
+        d.text((x + cell - 4 - d.textlength(lab, font=font), y + 2), lab, fill=(225, 225, 218), font=font)
+    # As the Keys page sends it: pieces the reader takes, enlarged 2x, grey.
+    scale = 2
+    size = ocr.max_dimension // scale
+    matcher = KeyMatcher(keys)
+    found = []
+    for top in range(0, img.height, size - 80):
+        for left in range(0, img.width, size - 80):
+            piece = img.crop((left, top, min(img.width, left + size), min(img.height, top + size)))
+            piece = piece.resize((piece.width * scale, piece.height * scale), Image.LANCZOS).convert("L")
+            lines = ocr.read(gray_to_bgra(piece.tobytes()), piece.width, piece.height)
+            for hit in matcher.match(lines, (left, top), scale):
+                if not any(f["id"] == hit["id"] and abs(f["x"] - hit["x"]) < 30 and abs(f["y"] - hit["y"]) < 20 for f in found):
+                    found.append(hit)
+            if left + size >= img.width:
+                break
+        if top + size >= img.height:
+            break
+    got = {f["id"] for f in found}
+    wrong = sorted(got - set(KEY_LABELS))
+    reads = [f["read"] for f in found]
+    assert not wrong, f"wrong keys: {wrong} (read {reads})"
+    assert len(got) >= 0.75 * len(KEY_LABELS), f"only {sorted(got)} of {KEY_LABELS} (read {reads})"
+    return f"{len(got)}/{len(KEY_LABELS)} key labels read, none wrong; missed {sorted(set(KEY_LABELS) - got)}"
+
+
 @check("price check end to end: screen capture, OCR, match")
 def _():
     import ctypes
